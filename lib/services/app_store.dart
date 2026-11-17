@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -19,6 +20,9 @@ class AuthAccount {
   final String email;
   final String mobile;
   final String passwordHash;
+
+  // Existing accounts can derive the same ID without changing their login data.
+  String get id => sha256.convert(utf8.encode(email.toLowerCase())).toString();
 
   Map<String, String> toJson() => {
     'fullName': fullName,
@@ -152,52 +156,235 @@ class StudentProject {
   );
 }
 
+class CourseCertificate {
+  const CourseCertificate({
+    required this.id,
+    required this.userId,
+    required this.studentName,
+    required this.courseId,
+    required this.courseName,
+    required this.completedAt,
+    this.completionDateKnown = true,
+  });
+
+  final String id;
+  final String userId;
+  final String studentName;
+  final String courseId;
+  final String courseName;
+  // For timestamp-free legacy records this holds the restoration date.
+  final DateTime completedAt;
+  final bool completionDateKnown;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'userId': userId,
+    'studentName': studentName,
+    'courseId': courseId,
+    'courseName': courseName,
+    'completedAt': completedAt.toIso8601String(),
+    'completionDateKnown': completionDateKnown,
+  };
+
+  factory CourseCertificate.fromJson(Map<String, dynamic> json) =>
+      CourseCertificate(
+        id: json['id'] as String,
+        userId: json['userId'] as String,
+        studentName: json['studentName'] as String,
+        courseId: json['courseId'] as String,
+        courseName: json['courseName'] as String,
+        completedAt: DateTime.parse(json['completedAt'] as String),
+        completionDateKnown: json['completionDateKnown'] as bool? ?? true,
+      );
+}
+
 class AppStore extends ChangeNotifier {
   AppStore._(this._preferences) {
-    _bookmarks = _readStringSet('bookmarks');
-    _completedLessons = _readStringSet('completed_lessons');
-    _passedCourseAssessments = _readStringSet('passed_course_assessments');
-    _attempts = _readJsonList('test_attempts', TestAttempt.fromJson);
-    _projects = _readJsonList('projects', StudentProject.fromJson);
     _accounts = _readJsonList('auth_accounts', AuthAccount.fromJson);
-    _currentUserEmail = _preferences.getString('auth_current_email');
-    final savedName = _preferences.getString('display_name');
-    final currentAccount = _currentUserEmail != null
-        ? _accounts
-              .where((account) => account.email == _currentUserEmail)
-              .firstOrNull
-        : null;
-    _displayName = savedName ?? currentAccount?.fullName ?? 'Learner';
+    final savedEmail = _preferences.getString('auth_current_email');
+    if (_preferences.getBool('auth_session_active') == true &&
+        savedEmail != null) {
+      final account = _accountForEmail(savedEmail);
+      if (account != null && account.passwordHash.isNotEmpty) {
+        _currentAccount = account;
+      }
+    }
   }
 
   final SharedPreferences _preferences;
-  late Set<String> _bookmarks;
-  late Set<String> _completedLessons;
-  late Set<String> _passedCourseAssessments;
-  late List<TestAttempt> _attempts;
-  late List<StudentProject> _projects;
   late List<AuthAccount> _accounts;
-  late String? _currentUserEmail;
-  late String _displayName;
+  AuthAccount? _currentAccount;
 
-  static Future<AppStore> create() async =>
-      AppStore._(await SharedPreferences.getInstance());
+  static Future<AppStore> create() async {
+    final store = AppStore._(await SharedPreferences.getInstance());
+    await store._migrateLegacyProgress();
+    await store._migrateLegacyUserData();
+    for (final course in courses) {
+      await store._issueCertificate(course);
+    }
+    return store;
+  }
 
-  String get displayName => _displayName;
-  String? get currentUserEmail => _currentUserEmail;
-  bool get isAuthenticated => _currentUserEmail != null;
-  Set<String> get bookmarks => Set.unmodifiable(_bookmarks);
-  Set<String> get completedLessons => Set.unmodifiable(_completedLessons);
+  String _accountKey(String key, String userId) => 'account.$userId.$key';
+
+  String _sessionKey(String key) {
+    final userId = currentUserId;
+    return userId == null ? key : _accountKey(key, userId);
+  }
+
+  Future<void> _migrateLegacyProgress() async {
+    const ownerKey = 'legacy_progress_owner';
+    if (_preferences.containsKey(ownerKey)) return;
+    // Global data has no owner metadata. Only migrate it when there is one
+    // existing account. Otherwise keep the original data as an archive.
+    final owner = _accounts.length == 1 ? _accounts.single : null;
+    if (owner != null) {
+      for (final key in ['completed_lessons', 'passed_course_assessments']) {
+        final legacy = _preferences.getStringList(key);
+        final target = _accountKey(key, owner.id);
+        if (legacy != null && !_preferences.containsKey(target)) {
+          await _writeStringList(target, legacy);
+        }
+      }
+      final attempts = _readJsonList(
+        'test_attempts',
+        TestAttempt.fromJson,
+      ).where((attempt) => attempt.courseId != null).toList();
+      final attemptsKey = _accountKey('course_attempts', owner.id);
+      if (attempts.isNotEmpty && !_preferences.containsKey(attemptsKey)) {
+        await _writeAttempts(attemptsKey, attempts);
+      }
+      final legacyName = _preferences.getString('display_name');
+      if (legacyName != null) {
+        final target = _accountKey('display_name', owner.id);
+        if (!_preferences.containsKey(target)) {
+          await _write(
+            target,
+            () => _preferences.setString(target, legacyName),
+          );
+        }
+      }
+    }
+    await _write(
+      ownerKey,
+      () => _preferences.setString(ownerKey, owner?.id ?? ''),
+    );
+  }
+
+  Future<void> _migrateLegacyUserData() async {
+    const migratedKey = 'legacy_user_data_migrated';
+    if (_preferences.getBool(migratedKey) == true) return;
+    if (_accounts.length == 1) {
+      final ownerId = _accounts.single.id;
+      final bookmarksKey = _accountKey('bookmarks', ownerId);
+      final bookmarks = _preferences.getStringList('bookmarks');
+      if (bookmarks != null && !_preferences.containsKey(bookmarksKey)) {
+        await _writeStringList(bookmarksKey, bookmarks);
+      }
+      final projectsKey = _accountKey('projects', ownerId);
+      final projects = _preferences.getString('projects');
+      if (projects != null && !_preferences.containsKey(projectsKey)) {
+        await _write(
+          projectsKey,
+          () => _preferences.setString(projectsKey, projects),
+        );
+      }
+      final attemptsKey = _accountKey('test_attempts', ownerId);
+      final attempts = _readJsonList(
+        'test_attempts',
+        TestAttempt.fromJson,
+      ).where((attempt) => attempt.courseId == null).toList();
+      if (attempts.isNotEmpty && !_preferences.containsKey(attemptsKey)) {
+        await _writeAttempts(attemptsKey, attempts);
+      }
+    }
+    await _write(migratedKey, () => _preferences.setBool(migratedKey, true));
+  }
+
+  String get displayName {
+    final account = _currentAccount;
+    if (account == null) return 'Learner';
+    return _preferences.getString(_accountKey('display_name', account.id)) ??
+        account.fullName;
+  }
+
+  String? get currentUserEmail => _currentAccount?.email;
+  String? get currentUserId => _currentAccount?.id;
+  bool get isAuthenticated => _currentAccount != null;
+  Set<String> get bookmarks => _sessionProgress('bookmarks');
+  Set<String> get completedLessons => _sessionProgress('completed_lessons');
   Set<String> get passedCourseAssessments =>
-      Set.unmodifiable(_passedCourseAssessments);
-  List<TestAttempt> get attempts => List.unmodifiable(_attempts);
-  List<StudentProject> get projects => List.unmodifiable(_projects);
+      _sessionProgress('passed_course_assessments');
+  List<TestAttempt> get attempts {
+    if (!isAuthenticated) return const [];
+    final all = [
+      ..._readJsonList(_sessionKey('test_attempts'), TestAttempt.fromJson),
+      ..._readJsonList(_sessionKey('course_attempts'), TestAttempt.fromJson),
+    ]..sort((a, b) => b.completedAt.compareTo(a.completedAt));
+    return List.unmodifiable(all);
+  }
+
+  List<StudentProject> get projects => isAuthenticated
+      ? List.unmodifiable(
+          _readJsonList(_sessionKey('projects'), StudentProject.fromJson),
+        )
+      : const [];
   List<AuthAccount> get accounts => List.unmodifiable(_accounts);
 
-  int get completedLessonCount => _completedLessons.length;
+  int get completedLessonCount => completedLessons.length;
 
-  String _hashPassword(String password) =>
-      sha256.convert(utf8.encode(password)).toString();
+  Set<String> _sessionProgress(String key) => isAuthenticated
+      ? Set.unmodifiable(_readStringSet(_sessionKey(key)))
+      : const {};
+
+  static String? validateEmail(String? value) {
+    final email = value?.trim() ?? '';
+    if (email.isEmpty) return 'Email is required.';
+    final pattern = RegExp(
+      r"^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$",
+      caseSensitive: false,
+    );
+    return pattern.hasMatch(email) ? null : 'Enter a valid email address.';
+  }
+
+  static const _passwordIterations = 600000;
+
+  // PBKDF2-HMAC-SHA256, one 32-byte block with a per-account random salt.
+  static List<int> _derivePassword(String password, List<int> salt) {
+    final hmac = Hmac(sha256, utf8.encode(password));
+    var block = hmac.convert([...salt, 0, 0, 0, 1]).bytes;
+    final result = List<int>.of(block);
+    for (var round = 1; round < _passwordIterations; round++) {
+      block = hmac.convert(block).bytes;
+      for (var byte = 0; byte < result.length; byte++) {
+        result[byte] ^= block[byte];
+      }
+    }
+    return result;
+  }
+
+  static String _hashPassword(String password) {
+    final random = Random.secure();
+    final salt = List.generate(16, (_) => random.nextInt(256));
+    final digest = _derivePassword(password, salt);
+    return 'pbkdf2-sha256:${base64Encode(salt)}:${base64Encode(digest)}';
+  }
+
+  static bool _matchesPassword(String password, String stored) {
+    final parts = stored.split(':');
+    if (parts.length == 1) {
+      return sha256.convert(utf8.encode(password)).toString() == stored;
+    }
+    if (parts.length != 3 || parts.first != 'pbkdf2-sha256') return false;
+    final expected = base64Decode(parts[2]);
+    final actual = _derivePassword(password, base64Decode(parts[1]));
+    if (expected.length != actual.length) return false;
+    var difference = 0;
+    for (var i = 0; i < actual.length; i++) {
+      difference |= actual[i] ^ expected[i];
+    }
+    return difference == 0;
+  }
 
   AuthAccount? _accountForEmail(String email) {
     for (final account in _accounts) {
@@ -226,22 +413,13 @@ class AppStore extends ChangeNotifier {
         'Full name cannot be empty.',
       );
     }
-    if (!trimmedEmail.contains('@') || !trimmedEmail.contains('.')) {
-      throw ArgumentError.value(email, 'email', 'Enter a valid email address.');
-    }
+    final emailError = validateEmail(trimmedEmail);
+    if (emailError != null) throw ArgumentError(emailError);
     if (trimmedPassword.length < 6) {
-      throw ArgumentError.value(
-        password,
-        'password',
-        'Password must be at least 6 characters.',
-      );
+      throw ArgumentError('Password must be at least 6 characters.');
     }
-    if (trimmedPassword != confirmPassword.trim()) {
-      throw ArgumentError.value(
-        confirmPassword,
-        'confirmPassword',
-        'Passwords do not match.',
-      );
+    if (password != confirmPassword) {
+      throw ArgumentError('Passwords do not match.');
     }
     if (_accountForEmail(trimmedEmail) != null) {
       throw StateError('An account already exists for this email.');
@@ -253,14 +431,7 @@ class AppStore extends ChangeNotifier {
       passwordHash: _hashPassword(password),
     );
     _accounts = [account, ..._accounts];
-    await _write(
-      'auth_accounts',
-      () => _preferences.setString(
-        'auth_accounts',
-        jsonEncode(_accounts.map((item) => item.toJson()).toList()),
-      ),
-    );
-    await _activateSession(account, persistLogin: true);
+    await _persistAccounts();
   }
 
   Future<void> signIn({
@@ -271,54 +442,60 @@ class AppStore extends ChangeNotifier {
     final trimmedEmail = email.trim();
     final account = _accountForEmail(trimmedEmail);
     if (account == null) {
+      final emailError = validateEmail(trimmedEmail);
+      if (emailError != null) throw ArgumentError(emailError);
       throw StateError('No account found for this email.');
     }
-    if (account.passwordHash != _hashPassword(password)) {
+    if (!_matchesPassword(password, account.passwordHash)) {
       throw StateError('Incorrect password.');
     }
-    await _activateSession(account, persistLogin: rememberMe);
+    final verified = account.passwordHash.startsWith('pbkdf2-sha256:')
+        ? account
+        : await _replacePassword(account, password);
+    await _activateSession(verified, persistLogin: rememberMe);
   }
 
   Future<void> resetPassword({
     required String email,
+    required String currentPassword,
     required String newPassword,
   }) async {
-    final trimmedEmail = email.trim();
-    final account = _accountForEmail(trimmedEmail);
-    if (account == null) {
-      throw StateError('No account found for this email.');
+    final account = _accountForEmail(email.trim());
+    if (account == null ||
+        !_matchesPassword(currentPassword, account.passwordHash)) {
+      throw StateError('Incorrect email or current password.');
     }
-    if (newPassword.length < 6) {
-      throw ArgumentError.value(
-        newPassword,
-        'newPassword',
-        'Password must be at least 6 characters.',
-      );
+    if (newPassword.trim().length < 6) {
+      throw ArgumentError('Password must be at least 6 characters.');
     }
+    await _replacePassword(account, newPassword);
+  }
+
+  Future<AuthAccount> _replacePassword(
+    AuthAccount account,
+    String password,
+  ) async {
     final updated = AuthAccount(
       fullName: account.fullName,
       email: account.email,
       mobile: account.mobile,
-      passwordHash: _hashPassword(newPassword),
+      passwordHash: _hashPassword(password),
     );
     _accounts = _accounts
-        .map(
-          (item) => item.email.toLowerCase() == trimmedEmail.toLowerCase()
-              ? updated
-              : item,
-        )
+        .map((item) => item.id == account.id ? updated : item)
         .toList();
-    await _write(
-      'auth_accounts',
-      () => _preferences.setString(
-        'auth_accounts',
-        jsonEncode(_accounts.map((item) => item.toJson()).toList()),
-      ),
-    );
-    if (_currentUserEmail?.toLowerCase() == trimmedEmail.toLowerCase()) {
-      await _activateSession(updated, persistLogin: true);
-    }
+    await _persistAccounts();
+    if (currentUserId == updated.id) _currentAccount = updated;
+    return updated;
   }
+
+  Future<void> _persistAccounts() => _write(
+    'auth_accounts',
+    () => _preferences.setString(
+      'auth_accounts',
+      jsonEncode(_accounts.map((item) => item.toJson()).toList()),
+    ),
+  );
 
   Future<void> logout() async {
     await _write(
@@ -329,7 +506,7 @@ class AppStore extends ChangeNotifier {
       'auth_session_active',
       () => _preferences.setBool('auth_session_active', false),
     );
-    _currentUserEmail = null;
+    _currentAccount = null;
     notifyListeners();
   }
 
@@ -337,12 +514,6 @@ class AppStore extends ChangeNotifier {
     AuthAccount account, {
     required bool persistLogin,
   }) async {
-    _currentUserEmail = account.email;
-    _displayName = account.fullName;
-    await _write(
-      'display_name',
-      () => _preferences.setString('display_name', account.fullName),
-    );
     if (persistLogin) {
       await _write(
         'auth_current_email',
@@ -353,8 +524,18 @@ class AppStore extends ChangeNotifier {
         () => _preferences.setBool('auth_session_active', true),
       );
     } else {
-      await _preferences.remove('auth_current_email');
-      await _preferences.setBool('auth_session_active', false);
+      await _write(
+        'auth_current_email',
+        () => _preferences.remove('auth_current_email'),
+      );
+      await _write(
+        'auth_session_active',
+        () => _preferences.setBool('auth_session_active', false),
+      );
+    }
+    _currentAccount = account;
+    for (final course in courses) {
+      await _issueCertificate(course);
     }
     notifyListeners();
   }
@@ -421,7 +602,8 @@ class AppStore extends ChangeNotifier {
 
   int _scoreForAttempt(TestAttempt attempt) {
     final questionById = {
-      for (final question in quizQuestions) question.id: question,
+      for (final question in [...quizQuestions, ...courseAssessmentQuestions])
+        question.id: question,
     };
     if (attempt.questionIds.isEmpty) return 0;
     var correct = 0;
@@ -434,11 +616,78 @@ class AppStore extends ChangeNotifier {
     return ((100 * correct) / attempt.questionIds.length).round();
   }
 
+  CourseCertificate? certificateFor(Course course) {
+    if (!isAuthenticated) return null;
+    final value = _preferences.getString(
+      _sessionKey('certificate.${course.id}'),
+    );
+    return value == null
+        ? null
+        : CourseCertificate.fromJson(jsonDecode(value) as Map<String, dynamic>);
+  }
+
   bool isCourseComplete(Course course) =>
-      _passedCourseAssessments.contains(course.id) &&
-      course.allLessons.every(
-        (lesson) => _completedLessons.contains(lesson.id),
-      );
+      certificateFor(course) != null ||
+      (passedCourseAssessments.contains(course.id) &&
+          course.allLessons.every(
+            (lesson) => completedLessons.contains(lesson.id),
+          ));
+
+  double progressFor(Course course) {
+    final lessons = course.allLessons;
+    if (lessons.isEmpty) return 0;
+    final completed = completedLessons;
+    return lessons.where((lesson) => completed.contains(lesson.id)).length /
+        lessons.length;
+  }
+
+  Lesson? continueLesson(Course course, {String? difficulty}) {
+    final matching = course.allLessons.where(
+      (lesson) => difficulty == null || lesson.difficulty.label == difficulty,
+    );
+    final incomplete = matching.where(
+      (lesson) => !completedLessons.contains(lesson.id),
+    );
+    return incomplete.firstOrNull;
+  }
+
+  Future<void> _issueCertificate(
+    Course course, {
+    DateTime? completionTime,
+  }) async {
+    final account = _currentAccount;
+    if (account == null || certificateFor(course) != null) return;
+    if (!passedCourseAssessments.contains(course.id) ||
+        !course.allLessons.every(
+          (lesson) => completedLessons.contains(lesson.id),
+        )) {
+      return;
+    }
+    final passedAttempts = attempts.where(
+      (attempt) =>
+          attempt.courseId == course.id &&
+          attempt.mode == 'exam' &&
+          _scoreForAttempt(attempt) >= 70,
+    );
+    final completedAt =
+        completionTime ??
+        passedAttempts.firstOrNull?.completedAt ??
+        DateTime.now();
+    final certificate = CourseCertificate(
+      id: 'SV-${sha256.convert(utf8.encode('${account.id}:${course.id}')).toString().substring(0, 24).toUpperCase()}',
+      userId: account.id,
+      studentName: account.fullName,
+      courseId: course.id,
+      courseName: course.title,
+      completedAt: completedAt,
+      completionDateKnown: completionTime != null || passedAttempts.isNotEmpty,
+    );
+    final key = _accountKey('certificate.${course.id}', account.id);
+    await _write(
+      key,
+      () => _preferences.setString(key, jsonEncode(certificate.toJson())),
+    );
+  }
 
   Set<String> _readStringSet(String key) =>
       _preferences.getStringList(key)?.toSet() ?? <String>{};
@@ -459,23 +708,57 @@ class AppStore extends ChangeNotifier {
   }
 
   Future<void> toggleBookmark(String questionId) async {
-    if (!_bookmarks.add(questionId)) _bookmarks.remove(questionId);
-    await _writeStringList('bookmarks', _bookmarks.toList());
+    if (!isAuthenticated) return;
+    final key = _sessionKey('bookmarks');
+    final bookmarks = _readStringSet(key);
+    if (!bookmarks.add(questionId)) bookmarks.remove(questionId);
+    await _writeStringList(key, bookmarks.toList());
     notifyListeners();
   }
 
   Future<void> markLessonComplete(String lessonId) async {
-    _completedLessons.add(lessonId);
-    await _writeStringList('completed_lessons', _completedLessons.toList());
-    notifyListeners();
+    final accountId = currentUserId;
+    final course = courses
+        .where(
+          (course) => course.allLessons.any((lesson) => lesson.id == lessonId),
+        )
+        .firstOrNull;
+    if (course == null) throw ArgumentError('Unknown lesson.');
+    await _addSessionProgress('completed_lessons', lessonId);
+    if (currentUserId == accountId) {
+      await _issueCertificate(course, completionTime: DateTime.now());
+    }
   }
 
   Future<void> markCourseAssessmentPassed(String courseId) async {
-    _passedCourseAssessments.add(courseId);
-    await _writeStringList(
-      'passed_course_assessments',
-      _passedCourseAssessments.toList(),
-    );
+    final course = courses.where((course) => course.id == courseId).firstOrNull;
+    if (course == null) {
+      throw ArgumentError('Unknown course.');
+    }
+    final eligible = attempts.any((attempt) => _passedFinal(course, attempt));
+    if (!eligible) {
+      throw StateError('Pass the complete final assessment first.');
+    }
+    final accountId = currentUserId;
+    await _addSessionProgress('passed_course_assessments', courseId);
+    if (currentUserId == accountId) await _issueCertificate(course);
+  }
+
+  bool _passedFinal(Course course, TestAttempt attempt) {
+    final requiredIds = course.finalQuestions.map((q) => q.id).toSet();
+    return attempt.courseId == course.id &&
+        attempt.mode == 'exam' &&
+        requiredIds.isNotEmpty &&
+        attempt.questionIds.length == requiredIds.length &&
+        attempt.questionIds.toSet().containsAll(requiredIds) &&
+        _scoreForAttempt(attempt) >= 70;
+  }
+
+  Future<void> _addSessionProgress(String key, String value) async {
+    if (!isAuthenticated) return;
+    final target = _sessionKey(key);
+    final progress = _readStringSet(target)..add(value);
+    await _writeStringList(target, progress.toList());
     notifyListeners();
   }
 
@@ -484,51 +767,84 @@ class AppStore extends ChangeNotifier {
     if (trimmedName.isEmpty) {
       throw ArgumentError.value(name, 'name', 'Name cannot be empty.');
     }
-    await _write(
-      'display_name',
-      () => _preferences.setString('display_name', trimmedName),
-    );
-    _displayName = trimmedName;
+    if (!isAuthenticated) return;
+    final key = _sessionKey('display_name');
+    await _write(key, () => _preferences.setString(key, trimmedName));
     notifyListeners();
   }
 
   Future<void> saveAttempt(TestAttempt attempt) async {
-    _attempts = [attempt, ..._attempts];
-    await _write(
-      'test_attempts',
-      () => _preferences.setString(
-        'test_attempts',
-        jsonEncode(_attempts.map((item) => item.toJson()).toList()),
-      ),
+    if (!isAuthenticated) return;
+    final course = courses
+        .where((course) => course.id == attempt.courseId)
+        .firstOrNull;
+    if (attempt.courseId != null &&
+        (course == null ||
+            !course.allLessons.every(
+              (lesson) => completedLessons.contains(lesson.id),
+            ))) {
+      throw StateError(
+        'Complete all course lessons before the final assessment.',
+      );
+    }
+    final accountId = currentUserId;
+    final key = _sessionKey(
+      attempt.courseId == null ? 'test_attempts' : 'course_attempts',
     );
+    await _writeAttempts(key, [
+      attempt,
+      ..._readJsonList(
+        key,
+        TestAttempt.fromJson,
+      ).where((item) => item.id != attempt.id),
+    ]);
+    if (currentUserId == accountId &&
+        course != null &&
+        _passedFinal(course, attempt)) {
+      await markCourseAssessmentPassed(course.id);
+    }
     notifyListeners();
   }
 
+  Future<void> _writeAttempts(String key, List<TestAttempt> attempts) => _write(
+    key,
+    () => _preferences.setString(
+      key,
+      jsonEncode(attempts.map((item) => item.toJson()).toList()),
+    ),
+  );
+
   Future<void> saveProject(StudentProject project) async {
-    final existingIndex = _projects.indexWhere((item) => item.id == project.id);
-    if (existingIndex < 0) {
-      _projects = [project, ..._projects];
+    if (!isAuthenticated) return;
+    final key = _sessionKey('projects');
+    final projects = _readJsonList(key, StudentProject.fromJson);
+    final index = projects.indexWhere((item) => item.id == project.id);
+    if (index < 0) {
+      projects.insert(0, project);
     } else {
-      _projects[existingIndex] = project;
-      _projects = List.of(_projects);
+      projects[index] = project;
     }
-    await _persistProjects();
+    await _persistProjects(key, projects);
     notifyListeners();
   }
 
   Future<void> deleteProject(String id) async {
-    _projects = _projects.where((project) => project.id != id).toList();
-    await _persistProjects();
+    if (!isAuthenticated) return;
+    final key = _sessionKey('projects');
+    final projects = _readJsonList(key, StudentProject.fromJson)
+      ..removeWhere((project) => project.id == id);
+    await _persistProjects(key, projects);
     notifyListeners();
   }
 
-  Future<void> _persistProjects() => _write(
-    'projects',
-    () => _preferences.setString(
-      'projects',
-      jsonEncode(_projects.map((project) => project.toJson()).toList()),
-    ),
-  );
+  Future<void> _persistProjects(String key, List<StudentProject> projects) =>
+      _write(
+        key,
+        () => _preferences.setString(
+          key,
+          jsonEncode(projects.map((project) => project.toJson()).toList()),
+        ),
+      );
 
   Future<void> _writeStringList(String key, List<String> value) =>
       _write(key, () => _preferences.setStringList(key, value));

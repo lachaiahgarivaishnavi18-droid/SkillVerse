@@ -54,10 +54,11 @@ dev_dependencies:
 
 flutter_launcher_icons:
   android: true
-  ios: true
+  ios: false
   image_path: "assets/brand/skillverse_logo.png"
   adaptive_icon_background: "#06183d"
   adaptive_icon_foreground: "assets/brand/skillverse_logo.png"
+  adaptive_icon_foreground_inset: 30
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -67,6 +68,9 @@ flutter:
   assets:
     - assets/brand/skillverse_logo.png
     - assets/brand/skillverse_logo.svg
+    - assets/fonts/NotoSans-Regular.ttf
+    - assets/fonts/NotoSansDevanagari-Regular.ttf
+    - assets/fonts/OFL.txt
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in

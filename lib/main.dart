@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -187,7 +188,7 @@ class WelcomePage extends StatelessWidget {
                   child: FilledButton(
                     onPressed: () =>
                         _openAuthentication(context, signIn: false),
-                    child: const Text('Sign Up'),
+                    child: const Text('Create Account'),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -218,51 +219,16 @@ class SkillVerseBrand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final logoSize = compact ? 44.0 : 120.0;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-          ),
-          child: Image.asset(
-            'assets/brand/skillverse_logo.png',
-            width: logoSize,
-            height: logoSize,
-            fit: BoxFit.contain,
-          ),
+    return SizedBox(
+      width: compact ? 160 : 240,
+      child: AspectRatio(
+        aspectRatio: 1,
+        child: Image.asset(
+          'assets/brand/skillverse_logo.png',
+          fit: BoxFit.contain,
+          semanticLabel: 'SkillVerse logo',
         ),
-        const SizedBox(height: 12),
-        Text(
-          'SkillVerse',
-          style: TextStyle(
-            fontSize: compact ? 24 : 54,
-            fontWeight: FontWeight.w900,
-            letterSpacing: -1.5,
-            foreground: Paint()
-              ..shader = const LinearGradient(
-                colors: [_blue, _brandBlue, _brandPurple],
-                begin: Alignment.centerLeft,
-                end: Alignment.centerRight,
-              ).createShader(const Rect.fromLTWH(0, 0, 260, 80)),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Learn • Practice • Achieve',
-          style: TextStyle(
-            fontSize: compact ? 12 : 18,
-            fontWeight: FontWeight.w500,
-            letterSpacing: 1.1,
-            color: Colors.white.withValues(alpha: 0.85),
-            fontStyle: FontStyle.italic,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
@@ -283,6 +249,7 @@ class AuthLandingPage extends StatefulWidget {
 
 class _AuthLandingPageState extends State<AuthLandingPage> {
   late bool _showSignIn;
+  String _registeredEmail = '';
 
   @override
   void initState() {
@@ -319,7 +286,10 @@ class _AuthLandingPageState extends State<AuthLandingPage> {
                       SegmentedButton<bool>(
                         segments: const [
                           ButtonSegment(value: true, label: Text('Sign In')),
-                          ButtonSegment(value: false, label: Text('Sign Up')),
+                          ButtonSegment(
+                            value: false,
+                            label: Text('Create Account'),
+                          ),
                         ],
                         selected: {_showSignIn},
                         onSelectionChanged: (selection) =>
@@ -327,9 +297,27 @@ class _AuthLandingPageState extends State<AuthLandingPage> {
                       ),
                       const SizedBox(height: 18),
                       if (_showSignIn)
-                        SignInForm(store: widget.store)
+                        SignInForm(
+                          store: widget.store,
+                          initialEmail: _registeredEmail,
+                        )
                       else
-                        SignUpForm(store: widget.store),
+                        SignUpForm(
+                          store: widget.store,
+                          onRegistered: (email) {
+                            setState(() {
+                              _registeredEmail = email;
+                              _showSignIn = true;
+                            });
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Account created. Sign in to continue.',
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                     ],
                   ),
                 ),
@@ -343,7 +331,9 @@ class _AuthLandingPageState extends State<AuthLandingPage> {
 }
 
 class SignInForm extends StatefulWidget {
-  const SignInForm({super.key, required this.store});
+  const SignInForm({super.key, required this.store, this.initialEmail = ''});
+
+  final String initialEmail;
 
   final AppStore store;
 
@@ -353,7 +343,9 @@ class SignInForm extends StatefulWidget {
 
 class _SignInFormState extends State<SignInForm> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
+  late final _emailController = TextEditingController(
+    text: widget.initialEmail,
+  );
   final _passwordController = TextEditingController();
   bool _rememberMe = true;
   bool _isSubmitting = false;
@@ -374,7 +366,7 @@ class _SignInFormState extends State<SignInForm> {
           controller: _emailController,
           keyboardType: TextInputType.emailAddress,
           decoration: const InputDecoration(labelText: 'Email'),
-          validator: (value) => (value == null || value.trim().isEmpty)
+          validator: (value) => value == null || value.trim().isEmpty
               ? 'Email is required.'
               : null,
         ),
@@ -405,7 +397,7 @@ class _SignInFormState extends State<SignInForm> {
             ),
             TextButton(
               onPressed: _requestPasswordReset,
-              child: const Text('Forgot password?'),
+              child: const Text('Change password'),
             ),
           ],
         ),
@@ -426,6 +418,7 @@ class _SignInFormState extends State<SignInForm> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     setState(() => _isSubmitting = true);
     try {
       await widget.store.signIn(
@@ -434,17 +427,18 @@ class _SignInFormState extends State<SignInForm> {
         rememberMe: _rememberMe,
       );
       if (mounted) {
-        Navigator.of(context).pushReplacement(
+        Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute<void>(
             builder: (_) => MainScreen(store: widget.store),
           ),
+          (route) => false,
         );
       }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(error.toString().replaceFirst('Exception: ', '')),
+          content: Text(error is StateError ? error.message : error.toString()),
         ),
       );
     } finally {
@@ -462,13 +456,20 @@ class _SignInFormState extends State<SignInForm> {
       );
       return;
     }
-    final passwordController = TextEditingController();
+    final currentPassword = _passwordController.text;
+    if (currentPassword.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter your current password first.')),
+      );
+      return;
+    }
+    var replacement = '';
     final newPassword = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Reset your local password'),
+        title: const Text('Change your local password'),
         content: TextField(
-          controller: passwordController,
+          onChanged: (value) => replacement = value,
           obscureText: true,
           decoration: const InputDecoration(
             labelText: 'New password',
@@ -481,16 +482,19 @@ class _SignInFormState extends State<SignInForm> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, passwordController.text),
-            child: const Text('Reset password'),
+            onPressed: () => Navigator.pop(context, replacement),
+            child: const Text('Change password'),
           ),
         ],
       ),
     );
-    passwordController.dispose();
     if (newPassword == null || !mounted) return;
     try {
-      await widget.store.resetPassword(email: email, newPassword: newPassword);
+      await widget.store.resetPassword(
+        email: email,
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -508,7 +512,13 @@ class _SignInFormState extends State<SignInForm> {
 }
 
 class SignUpForm extends StatefulWidget {
-  const SignUpForm({super.key, required this.store});
+  const SignUpForm({
+    super.key,
+    required this.store,
+    required this.onRegistered,
+  });
+
+  final ValueChanged<String> onRegistered;
 
   final AppStore store;
 
@@ -555,9 +565,7 @@ class _SignUpFormState extends State<SignUpForm> {
           controller: _emailController,
           keyboardType: TextInputType.emailAddress,
           decoration: const InputDecoration(labelText: 'Email'),
-          validator: (value) => (value == null || value.trim().isEmpty)
-              ? 'Email is required.'
-              : null,
+          validator: AppStore.validateEmail,
         ),
         const SizedBox(height: 12),
         TextFormField(
@@ -579,7 +587,7 @@ class _SignUpFormState extends State<SignUpForm> {
                   setState(() => _passwordVisible = !_passwordVisible),
             ),
           ),
-          validator: (value) => (value == null || value.length < 6)
+          validator: (value) => (value == null || value.trim().length < 6)
               ? 'Use at least 6 characters.'
               : null,
         ),
@@ -637,18 +645,12 @@ class _SignUpFormState extends State<SignUpForm> {
         password: _passwordController.text,
         confirmPassword: _confirmController.text,
       );
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute<void>(
-            builder: (_) => MainScreen(store: widget.store),
-          ),
-        );
-      }
+      if (mounted) widget.onRegistered(_emailController.text.trim());
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(error.toString().replaceFirst('Exception: ', '')),
+          content: Text(error is StateError ? error.message : error.toString()),
         ),
       );
     } finally {
@@ -876,16 +878,15 @@ class _LearnPageState extends State<LearnPage> {
         'In progress',
         'Not started',
       ];
+      final query = _query.trim().toLowerCase();
       final filteredCourses = courses.where((course) {
         final matchesSearch =
-            course.title.toLowerCase().contains(_query.trim().toLowerCase()) ||
-            course.description.toLowerCase().contains(
-              _query.trim().toLowerCase(),
-            );
+            course.title.toLowerCase().contains(query) ||
+            course.description.toLowerCase().contains(query);
         final matchesCategory = switch (_category) {
-          'Beginner' => course.level == 'Beginner',
-          'Intermediate' => course.level == 'Intermediate',
-          'Advanced' => course.level == 'Advanced',
+          'Beginner' ||
+          'Intermediate' ||
+          'Advanced' => course.matchesLevel(_category),
           'Completed' => widget.store.isCourseComplete(course),
           'In progress' =>
             !widget.store.isCourseComplete(course) &&
@@ -962,13 +963,26 @@ class _LearnPageState extends State<LearnPage> {
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                   subtitle: Text(
+                    '${course.description}\n'
                     '${course.allLessons.length} lessons · '
-                    '${course.allLessons.where((lesson) => widget.store.completedLessons.contains(lesson.id)).length} completed',
+                    '${course.allLessons.where((lesson) => widget.store.completedLessons.contains(lesson.id)).length} completed · '
+                    '${(widget.store.progressFor(course) * 100).round()}%',
                   ),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => _push(
                     context,
-                    CourseDetailPage(course: course, store: widget.store),
+                    CourseDetailPage(
+                      course: course,
+                      store: widget.store,
+                      initialDifficulty:
+                          const [
+                            'Beginner',
+                            'Intermediate',
+                            'Advanced',
+                          ].contains(_category)
+                          ? _category
+                          : 'All',
+                    ),
                   ),
                 ),
               ),
@@ -983,9 +997,11 @@ class CourseDetailPage extends StatefulWidget {
     super.key,
     required this.course,
     required this.store,
+    this.initialDifficulty = 'All',
   });
 
   final Course course;
+  final String initialDifficulty;
   final AppStore store;
 
   @override
@@ -993,6 +1009,21 @@ class CourseDetailPage extends StatefulWidget {
 }
 
 class _CourseDetailPageState extends State<CourseDetailPage> {
+  late String _difficulty = widget.initialDifficulty;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  List<Lesson> get _visibleLessons => widget.course.allLessons
+      .where(
+        (lesson) =>
+            _difficulty == 'All' || lesson.difficulty.label == _difficulty,
+      )
+      .toList();
+
   final ScrollController _controller = ScrollController();
   final GlobalKey _modulesKey = GlobalKey();
   final GlobalKey _lessonsKey = GlobalKey();
@@ -1002,22 +1033,24 @@ class _CourseDetailPageState extends State<CourseDetailPage> {
       context: context,
       isScrollControlled: true,
       builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Text(message),
-            ],
+                const SizedBox(height: 12),
+                Text(message),
+              ],
+            ),
           ),
         ),
       ),
@@ -1041,212 +1074,278 @@ class _CourseDetailPageState extends State<CourseDetailPage> {
       listenable: widget.store,
       builder: (context, _) {
         final lessonCount = widget.course.allLessons.length;
+        final nextLesson = widget.store.continueLesson(
+          widget.course,
+          difficulty: _difficulty == 'All' ? null : _difficulty,
+        );
         final topicCount = widget.course.topicCount;
-        final completedLessons = widget.course.allLessons
-            .where(
-              (lesson) => widget.store.completedLessons.contains(lesson.id),
-            )
-            .length;
-        final remainingHours = () {
-          final value =
-              int.tryParse(
-                widget.course.duration.replaceAll(RegExp(r'[^0-9]'), ''),
-              ) ??
-              3;
-          if (widget.course.duration.contains('4') ||
-              widget.course.duration.contains('5')) {
-            return math.max(1, value - (completedLessons ~/ 2));
-          }
-          return math.max(1, value - (completedLessons ~/ 3));
-        }();
-        return ListView(
+        final hourValues = RegExp(r'\d+')
+            .allMatches(widget.course.duration)
+            .map((match) => int.parse(match.group(0)!));
+        final estimatedHours = hourValues.lastOrNull;
+        final remainingHours = estimatedHours == null
+            ? null
+            : (estimatedHours * (1 - widget.store.progressFor(widget.course)))
+                  .ceil();
+        return SingleChildScrollView(
           controller: _controller,
           padding: const EdgeInsets.all(20),
-          children: [
-            Text(
-              widget.course.description.isEmpty
-                  ? 'A self-paced introduction to ${widget.course.title}.'
-                  : widget.course.description,
-              style: const TextStyle(fontSize: 16),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              children: [
-                ActionChip(
-                  label: Text(widget.course.level),
-                  onPressed: () => _showInfo(
-                    'Learning level',
-                    '${widget.course.title} is designed for ${widget.course.level.toLowerCase()} learners. '
-                        'Use the learning objectives and prerequisites to judge the right starting point.',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                widget.course.description.isEmpty
+                    ? 'A self-paced introduction to ${widget.course.title}.'
+                    : widget.course.description,
+                style: const TextStyle(fontSize: 16),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                children: [
+                  ActionChip(
+                    label: Text(widget.course.level),
+                    onPressed: () => _showInfo(
+                      'Learning level',
+                      '${widget.course.title} is designed for ${widget.course.level.toLowerCase()} learners. '
+                          'Use the learning objectives and prerequisites to judge the right starting point.',
+                    ),
                   ),
-                ),
-                ActionChip(
-                  label: Text(widget.course.duration),
-                  onPressed: () => _showInfo(
-                    'Course duration',
-                    'Estimated study time: ${widget.course.duration}. '
-                        'Approximate remaining time: $remainingHours hours based on your current progress.',
+                  ActionChip(
+                    label: Text(widget.course.duration),
+                    onPressed: () => _showInfo(
+                      'Course duration',
+                      'Study time is ${widget.course.duration}. '
+                          '${remainingHours == null ? 'Complete the modules at your own pace.' : 'Approximate remaining time is $remainingHours hours based on completed lessons.'}',
+                    ),
                   ),
-                ),
-                ActionChip(
-                  label: Text('$lessonCount lessons'),
-                  onPressed: () => _scrollToKey(_lessonsKey),
-                ),
-                ActionChip(
-                  label: Text(
-                    '${widget.course.learningModules.length} modules',
+                  ActionChip(
+                    label: Text('$lessonCount lessons'),
+                    onPressed: () => _scrollToKey(_lessonsKey),
                   ),
-                  onPressed: () => _scrollToKey(_modulesKey),
+                  ActionChip(
+                    label: Text(
+                      '${widget.course.learningModules.length} modules',
+                    ),
+                    onPressed: () => _scrollToKey(_modulesKey),
+                  ),
+                  ActionChip(
+                    label: Text('$topicCount topics'),
+                    onPressed: () => _showInfo(
+                      'Topics covered',
+                      widget.course.allTopics.isEmpty
+                          ? 'This course is still being expanded.'
+                          : widget.course.allTopics.join(', '),
+                    ),
+                  ),
+                ],
+              ),
+              _ProgressSummary(store: widget.store, course: widget.course),
+              if (nextLesson != null)
+                FilledButton.icon(
+                  onPressed: () => _push(
+                    context,
+                    LessonPage(
+                      lesson: nextLesson,
+                      store: widget.store,
+                      courseLessons: _visibleLessons,
+                    ),
+                  ),
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('Continue Learning'),
                 ),
-                ActionChip(
-                  label: Text('$topicCount topics'),
-                  onPressed: () => _showInfo(
-                    'Topics covered',
-                    widget.course.allTopics.isEmpty
-                        ? 'This course is still being expanded.'
-                        : widget.course.allTopics.join(', '),
+              const SizedBox(height: 14),
+              if (widget.course.objectives.isNotEmpty) ...[
+                const _SectionHeading(title: 'Learning objectives'),
+                const SizedBox(height: 6),
+                for (final objective in widget.course.objectives)
+                  ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.check, color: _blue),
+                    title: Text(objective),
+                  ),
+              ],
+              if (widget.course.prerequisites.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                const _SectionHeading(title: 'Prerequisites'),
+                for (final prerequisite in widget.course.prerequisites)
+                  ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.info_outline),
+                    title: Text(prerequisite),
+                  ),
+              ],
+              if (widget.course.tools.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                const _SectionHeading(title: 'Tools and technologies'),
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      for (final tool in widget.course.tools)
+                        Chip(label: Text(tool)),
+                    ],
                   ),
                 ),
               ],
-            ),
-            _ProgressSummary(store: widget.store, course: widget.course),
-            const SizedBox(height: 14),
-            if (widget.course.objectives.isNotEmpty) ...[
-              const _SectionHeading(title: 'Learning objectives'),
-              const SizedBox(height: 6),
-              for (final objective in widget.course.objectives)
-                ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.check, color: _blue),
-                  title: Text(objective),
-                ),
-            ],
-            if (widget.course.prerequisites.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              const _SectionHeading(title: 'Prerequisites'),
-              for (final prerequisite in widget.course.prerequisites)
-                ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.info_outline),
-                  title: Text(prerequisite),
-                ),
-            ],
-            if (widget.course.tools.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              const _SectionHeading(title: 'Tools and technologies'),
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    for (final tool in widget.course.tools)
-                      Chip(label: Text(tool)),
-                  ],
+              if (widget.course.capstoneProject.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                const _SectionHeading(title: 'Capstone project'),
+                const SizedBox(height: 6),
+                Text(widget.course.capstoneProject),
+              ],
+              const SizedBox(height: 14),
+              Container(
+                key: _lessonsKey,
+                child: Container(
+                  key: _modulesKey,
+                  child: const _SectionHeading(title: 'Modules and lessons'),
                 ),
               ),
-            ],
-            if (widget.course.capstoneProject.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              const _SectionHeading(title: 'Capstone project'),
               const SizedBox(height: 6),
-              Text(widget.course.capstoneProject),
-            ],
-            const SizedBox(height: 14),
-            Container(
-              key: _lessonsKey,
-              child: const _SectionHeading(title: 'Modules and lessons'),
-            ),
-            const SizedBox(height: 6),
-            for (final module in widget.course.learningModules)
-              Card(
-                key: module.title == widget.course.learningModules.first.title
-                    ? _modulesKey
-                    : null,
-                clipBehavior: Clip.antiAlias,
-                child: ExpansionTile(
-                  title: Text(
-                    module.title,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  subtitle: Text(module.summary),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
                   children: [
-                    for (final lesson in module.lessons)
-                      ListTile(
-                        leading: Icon(
-                          widget.store.completedLessons.contains(lesson.id)
-                              ? Icons.check_circle
-                              : Icons.play_circle_outline,
-                          color: _blue,
-                        ),
-                        title: Text(lesson.title),
-                        subtitle: Text(
-                          widget.store.completedLessons.contains(lesson.id)
-                              ? 'Completed'
-                              : 'Lesson',
-                        ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => _push(
-                          context,
-                          LessonPage(
-                            lesson: lesson,
-                            store: widget.store,
-                            courseLessons: widget.course.allLessons,
-                          ),
+                    for (final level in [
+                      'All',
+                      'Beginner',
+                      'Intermediate',
+                      'Advanced',
+                    ])
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(level),
+                          selected: _difficulty == level,
+                          onSelected: (_) =>
+                              setState(() => _difficulty = level),
                         ),
                       ),
                   ],
                 ),
               ),
-            if (widget.course.quizSubject != null) ...[
-              const SizedBox(height: 20),
-              const _SectionHeading(title: 'Final assessment'),
-              const SizedBox(height: 6),
-              Text(
-                widget.store.isCourseComplete(widget.course)
-                    ? 'All lessons completed and the final assessment passed.'
-                    : widget.store.passedCourseAssessments.contains(
-                        widget.course.id,
-                      )
-                    ? 'Assessment passed. Complete every lesson to finish this course.'
-                    : 'Complete every lesson, then pass the subject assessment to complete this course.',
-              ),
-              const SizedBox(height: 8),
-              FilledButton.icon(
-                onPressed:
-                    widget.course.allLessons.every(
-                      (lesson) =>
-                          widget.store.completedLessons.contains(lesson.id),
-                    )
-                    ? () => _push(
-                        context,
-                        TestSetupPage(
-                          subject: widget.course.quizSubject!,
-                          store: widget.store,
-                          courseId: widget.course.id,
-                        ),
-                      )
-                    : null,
-                icon: const Icon(Icons.fact_check),
-                label: Text(
-                  widget.store.passedCourseAssessments.contains(
-                        widget.course.id,
-                      )
-                      ? 'Retake final assessment'
-                      : 'Start final assessment',
+              if (_visibleLessons.isEmpty)
+                const Text('No lessons match this level.'),
+              for (final module in widget.course.learningModules.where(
+                (module) => module.lessons.any(
+                  (lesson) => _visibleLessons.contains(lesson),
                 ),
-              ),
-              if (widget.store.isCourseComplete(widget.course))
-                const ListTile(
-                  leading: Icon(Icons.verified, color: Colors.green),
-                  title: Text('Course requirements completed'),
-                  subtitle: Text(
-                    'This is a Learning App progress record, not a vendor certification.',
+              ))
+                Card(
+                  clipBehavior: Clip.antiAlias,
+                  child: ExpansionTile(
+                    title: Text(
+                      module.title,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: Text(module.summary),
+                    children: [
+                      for (final lesson in module.lessons.where(
+                        (lesson) => _visibleLessons.contains(lesson),
+                      ))
+                        ListTile(
+                          leading: Icon(
+                            widget.store.completedLessons.contains(lesson.id)
+                                ? Icons.check_circle
+                                : Icons.play_circle_outline,
+                            color: _blue,
+                          ),
+                          title: Text(lesson.title),
+                          subtitle: Text(
+                            widget.store.completedLessons.contains(lesson.id)
+                                ? '${lesson.difficulty.label} · Completed'
+                                : lesson.difficulty.label,
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _push(
+                            context,
+                            LessonPage(
+                              lesson: lesson,
+                              store: widget.store,
+                              courseLessons: _visibleLessons,
+                            ),
+                          ),
+                        ),
+                      if (module.assignment.isNotEmpty)
+                        ListTile(
+                          title: const Text('Module assignment'),
+                          subtitle: Text(module.assignment),
+                        ),
+                      if (module.questions.isNotEmpty)
+                        TextButton.icon(
+                          icon: const Icon(Icons.quiz_outlined),
+                          label: const Text(
+                            'Practice questions and module quiz',
+                          ),
+                          onPressed: () =>
+                              _push(context, ModuleQuizPage(module: module)),
+                        ),
+                    ],
                   ),
                 ),
+              if (widget.course.finalQuestions.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                const _SectionHeading(title: 'Final assessment'),
+                const SizedBox(height: 6),
+                Text(
+                  widget.store.isCourseComplete(widget.course)
+                      ? 'All lessons completed and the final assessment passed.'
+                      : widget.store.passedCourseAssessments.contains(
+                          widget.course.id,
+                        )
+                      ? 'Assessment passed. Complete every lesson to finish this course.'
+                      : 'Complete every lesson, then pass the full ${widget.course.finalQuestions.length}-question assessment with at least 70%.',
+                ),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed:
+                      widget.course.allLessons.every(
+                        (lesson) =>
+                            widget.store.completedLessons.contains(lesson.id),
+                      )
+                      ? () => _push(
+                          context,
+                          MockTestPage(
+                            subject: widget.course.quizSubject!,
+                            store: widget.store,
+                            courseId: widget.course.id,
+                            questions: widget.course.finalQuestions,
+                            mode: TestMode.exam,
+                          ),
+                        )
+                      : null,
+                  icon: const Icon(Icons.fact_check),
+                  label: Text(
+                    widget.store.passedCourseAssessments.contains(
+                          widget.course.id,
+                        )
+                        ? 'Retake final assessment'
+                        : 'Start final assessment',
+                  ),
+                ),
+                if (widget.store.certificateFor(widget.course) != null)
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.download),
+                    label: const Text('Download certificate'),
+                    onPressed: () => _downloadCertificate(
+                      context,
+                      widget.store.certificateFor(widget.course)!,
+                    ),
+                  ),
+                if (widget.store.isCourseComplete(widget.course))
+                  const ListTile(
+                    leading: Icon(Icons.verified, color: Colors.green),
+                    title: Text('Course requirements completed'),
+                    subtitle: Text(
+                      'This is a Learning App progress record, not a vendor certification.',
+                    ),
+                  ),
+              ],
             ],
-          ],
+          ),
         );
       },
     ),
@@ -1276,6 +1375,9 @@ class LessonPage extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
+          Chip(label: Text(lesson.difficulty.label)),
+          const _SectionHeading(title: 'Topic introduction and explanation'),
+          const SizedBox(height: 8),
           Text(lesson.summary, style: const TextStyle(fontSize: 16)),
           if (lesson.topics.isNotEmpty) ...[
             const SizedBox(height: 18),
@@ -1304,6 +1406,16 @@ class LessonPage extends StatelessWidget {
             const SizedBox(height: 6),
             Text(lesson.exercise!),
           ],
+          if (lesson.industryUse != null) ...[
+            const SizedBox(height: 18),
+            const _SectionHeading(title: 'Industry application'),
+            const SizedBox(height: 6),
+            Text(lesson.industryUse!),
+          ],
+          const SizedBox(height: 18),
+          const _SectionHeading(title: 'Key points to remember'),
+          const SizedBox(height: 6),
+          Text(lesson.summary.split('. ').last),
           const SizedBox(height: 24),
           FilledButton.icon(
             onPressed: () async {
@@ -1319,7 +1431,9 @@ class LessonPage extends StatelessWidget {
           ),
           if (canNavigate) ...[
             const SizedBox(height: 12),
-            Row(
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
               children: [
                 OutlinedButton.icon(
                   onPressed: lessonIndex == 0
@@ -1335,7 +1449,6 @@ class LessonPage extends StatelessWidget {
                   icon: const Icon(Icons.arrow_back),
                   label: const Text('Previous lesson'),
                 ),
-                const Spacer(),
                 FilledButton.icon(
                   onPressed: lessonIndex == courseLessons.length - 1
                       ? null
@@ -1357,6 +1470,71 @@ class LessonPage extends StatelessWidget {
       ),
     );
   }
+}
+
+class ModuleQuizPage extends StatefulWidget {
+  const ModuleQuizPage({super.key, required this.module});
+
+  final CourseModule module;
+
+  @override
+  State<ModuleQuizPage> createState() => _ModuleQuizPageState();
+}
+
+class _ModuleQuizPageState extends State<ModuleQuizPage> {
+  final Map<String, int> _answers = {};
+  bool _submitted = false;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text('${widget.module.title} quiz')),
+    body: ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Text(widget.module.summary),
+        const SizedBox(height: 16),
+        for (final question in widget.module.questions) ...[
+          Text(
+            question.prompt,
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+          for (var i = 0; i < question.options.length; i++)
+            ListTile(
+              leading: Icon(
+                _answers[question.id] == i
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_off,
+              ),
+              title: Text(question.options[i]),
+              onTap: _submitted
+                  ? null
+                  : () => setState(() => _answers[question.id] = i),
+            ),
+          if (_submitted) ...[
+            Text(
+              _answers[question.id] == question.answerIndex
+                  ? 'Correct'
+                  : 'Review this answer',
+            ),
+            Text(question.explanation),
+          ],
+          const SizedBox(height: 16),
+        ],
+        FilledButton(
+          onPressed: _answers.length == widget.module.questions.length
+              ? () => setState(() {
+                  if (_submitted) _answers.clear();
+                  _submitted = !_submitted;
+                })
+              : null,
+          child: Text(_submitted ? 'Try again' : 'Check answers'),
+        ),
+        const SizedBox(height: 20),
+        const _SectionHeading(title: 'Module assignment'),
+        Text(widget.module.assignment),
+      ],
+    ),
+  );
 }
 
 class InterviewHubPage extends StatelessWidget {
@@ -2070,16 +2248,6 @@ class _MockTestPageState extends State<MockTestPage> {
     );
     try {
       await widget.store.saveAttempt(attempt);
-      if (widget.courseId != null &&
-          _answers.entries.where((entry) {
-                final question = widget.questions.firstWhere(
-                  (item) => item.id == entry.key,
-                );
-                return entry.value == question.answerIndex;
-              }).length >=
-              (widget.questions.length * 0.7).ceil()) {
-        await widget.store.markCourseAssessmentPassed(widget.courseId!);
-      }
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
@@ -2927,7 +3095,7 @@ class CertificatesPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final certificateCourses = courses
-        .where((course) => store.isCourseComplete(course))
+        .where((course) => store.certificateFor(course) != null)
         .toList();
     return Scaffold(
       appBar: AppBar(title: const Text('Certificates')),
@@ -2949,9 +3117,14 @@ class CertificatesPage extends StatelessWidget {
                       child: Icon(Icons.workspace_premium, color: _blue),
                     ),
                     title: Text(course.title),
-                    subtitle: const Text('Course completion certificate'),
+                    subtitle: Text(
+                      '${store.certificateFor(course)?.studentName ?? store.displayName} · ${store.certificateFor(course)?.id ?? ''}',
+                    ),
                     trailing: const Icon(Icons.download),
-                    onTap: () => _downloadCertificate(context, course.title),
+                    onTap: () => _downloadCertificate(
+                      context,
+                      store.certificateFor(course)!,
+                    ),
                   ),
                 );
               },
@@ -2960,80 +3133,129 @@ class CertificatesPage extends StatelessWidget {
   }
 }
 
-Future<void> _downloadCertificate(
-  BuildContext context,
-  String courseTitle,
-) async {
-  final doc = pw.Document();
+Future<Uint8List> buildCertificatePdf(CourseCertificate certificate) async {
+  final font = pw.Font.ttf(
+    await rootBundle.load('assets/fonts/NotoSans-Regular.ttf'),
+  );
+  final fallback = pw.Font.ttf(
+    await rootBundle.load('assets/fonts/NotoSansDevanagari-Regular.ttf'),
+  );
+  final doc = pw.Document(
+    theme: pw.ThemeData.withFont(
+      base: font,
+      bold: font,
+      fontFallback: [fallback],
+    ),
+    title: '${certificate.courseName} completion certificate',
+    author: 'SkillVerse',
+  );
   doc.addPage(
     pw.Page(
-      pageFormat: PdfPageFormat.a4,
-      build: (pw.Context pageContext) {
-        return pw.Container(
-          decoration: const pw.BoxDecoration(color: PdfColors.white),
+      pageFormat: PdfPageFormat.a4.landscape,
+      margin: const pw.EdgeInsets.all(32),
+      build: (_) => pw.Container(
+        padding: const pw.EdgeInsets.all(28),
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: PdfColors.blue800, width: 2),
+        ),
+        child: pw.Center(
           child: pw.Column(
-            mainAxisAlignment: pw.MainAxisAlignment.center,
+            mainAxisSize: pw.MainAxisSize.min,
             crossAxisAlignment: pw.CrossAxisAlignment.center,
             children: [
               pw.Text(
-                'SkillVerse Certificate',
-                style: pw.TextStyle(
-                  fontSize: 32,
-                  fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.blue800,
-                ),
-              ),
-              pw.SizedBox(height: 24),
-              pw.Text(
-                'This certifies that',
-                style: const pw.TextStyle(fontSize: 20),
-              ),
-              pw.SizedBox(height: 16),
-              pw.Text(
-                'Learner',
+                'SkillVerse',
                 style: pw.TextStyle(
                   fontSize: 28,
+                  color: PdfColors.blue800,
                   fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.black,
                 ),
               ),
-              pw.SizedBox(height: 16),
+              pw.SizedBox(height: 12),
               pw.Text(
-                'has successfully completed the course',
-                style: const pw.TextStyle(fontSize: 18),
+                'COURSE COMPLETION CERTIFICATE',
+                style: const pw.TextStyle(fontSize: 15),
               ),
-              pw.SizedBox(height: 18),
+              pw.SizedBox(height: 20),
               pw.Text(
-                courseTitle,
+                'This certifies that',
+                style: const pw.TextStyle(fontSize: 15),
+              ),
+              pw.SizedBox(height: 10),
+              pw.Text(
+                certificate.studentName,
+                textAlign: pw.TextAlign.center,
                 style: pw.TextStyle(
                   fontSize: 26,
                   fontWeight: pw.FontWeight.bold,
-                  color: PdfColors.blue900,
                 ),
               ),
-              pw.SizedBox(height: 32),
-              pw.Divider(),
-              pw.SizedBox(height: 20),
+              pw.SizedBox(height: 14),
               pw.Text(
-                'Issued on ${DateTime.now().toIso8601String().substring(0, 10)}',
-                style: const pw.TextStyle(fontSize: 16),
+                'completed all lessons and passed the final assessment in',
+                textAlign: pw.TextAlign.center,
+                style: const pw.TextStyle(fontSize: 13),
+              ),
+              pw.SizedBox(height: 12),
+              pw.Text(
+                certificate.courseName,
+                textAlign: pw.TextAlign.center,
+                style: pw.TextStyle(
+                  fontSize: 22,
+                  color: PdfColors.blue900,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 22),
+              pw.Text(
+                '${certificate.completionDateKnown ? 'Completed on' : 'Completion recorded on'} ${certificate.completedAt.toLocal().toIso8601String().substring(0, 10)}',
+                style: const pw.TextStyle(fontSize: 12),
+              ),
+              pw.SizedBox(height: 10),
+              pw.Text(
+                'Certificate ID  ${certificate.id}',
+                style: const pw.TextStyle(fontSize: 10),
               ),
             ],
           ),
-        );
-      },
+        ),
+      ),
     ),
   );
+  return doc.save();
+}
 
-  final directory = await getApplicationDocumentsDirectory();
-  final filePath =
-      '${directory.path}/skillverse_${courseTitle.replaceAll(RegExp(r'[^A-Za-z0-9]'), '_').toLowerCase()}.pdf';
-  final file = File(filePath);
-  await file.writeAsBytes(await doc.save());
-  if (context.mounted) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Certificate saved to $filePath')));
+Future<void> _downloadCertificate(
+  BuildContext context,
+  CourseCertificate certificate,
+) async {
+  try {
+    final bytes = await buildCertificatePdf(certificate);
+    final filename = 'skillverse_${certificate.id}.pdf';
+    final String? filePath;
+    if (Platform.isAndroid) {
+      filePath = await const MethodChannel(
+        'skillverse/certificates',
+      ).invokeMethod<String>('savePdf', {'bytes': bytes, 'filename': filename});
+    } else {
+      final directory =
+          await getDownloadsDirectory() ??
+          await getApplicationDocumentsDirectory();
+      filePath = '${directory.path}/$filename';
+      await File(filePath).writeAsBytes(bytes, flush: true);
+    }
+    if (filePath == null) return;
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Certificate saved to $filePath')));
+    }
+  } catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not save certificate: $error')),
+      );
+    }
   }
 }
 
@@ -3265,17 +3487,28 @@ class _ProgressSummary extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 12,
+              runSpacing: 8,
               children: [
-                const Icon(Icons.trending_up, color: _blue),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    course == null ? 'Course progress' : course!.title,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.trending_up, color: _blue),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        course == null ? 'Course progress' : course!.title,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
                 ),
-                Text('$completed / $total lessons'),
+                Text(
+                  '$completed / $total lessons · ${(progress * 100).round()}%',
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -3728,7 +3961,8 @@ void _openSavedResult(
   AppStore store,
 ) {
   final questionById = {
-    for (final question in quizQuestions) question.id: question,
+    for (final question in [...quizQuestions, ...courseAssessmentQuestions])
+      question.id: question,
   };
   final questions = attempt.questionIds
       .map((id) => questionById[id])
@@ -3758,7 +3992,8 @@ List<QuizQuestion> _quizQuestionsForSubject(String subject) {
 
 int _score(TestAttempt attempt) {
   final questionById = {
-    for (final question in quizQuestions) question.id: question,
+    for (final question in [...quizQuestions, ...courseAssessmentQuestions])
+      question.id: question,
   };
   if (attempt.total == 0) return 0;
   final correct = attempt.questionIds.where((id) {
@@ -3772,7 +4007,7 @@ double _average(List<int> values) =>
     values.reduce((a, b) => a + b) / values.length;
 
 IconData _courseIcon(String title) => switch (title) {
-  'Python' => Icons.code,
+  'Python' || 'Python Programming' => Icons.code,
   'SQL' => Icons.storage,
   'Machine Learning' => Icons.memory,
   'Data Science' => Icons.query_stats,

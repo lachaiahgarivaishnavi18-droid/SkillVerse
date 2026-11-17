@@ -1,3 +1,12 @@
+enum CourseDifficulty {
+  beginner('Beginner'),
+  intermediate('Intermediate'),
+  advanced('Advanced');
+
+  const CourseDifficulty(this.label);
+  final String label;
+}
+
 class Lesson {
   const Lesson({
     required this.id,
@@ -7,6 +16,8 @@ class Lesson {
     this.topics = const [],
     this.expectedOutput,
     this.exercise,
+    this.difficulty = CourseDifficulty.beginner,
+    this.industryUse,
   });
 
   final String id;
@@ -16,10 +27,15 @@ class Lesson {
   final List<String> topics;
   final String? expectedOutput;
   final String? exercise;
+  final CourseDifficulty difficulty;
+  final String? industryUse;
 }
 
 class CourseModule {
   const CourseModule({
+    this.assignment = '',
+    this.questions = const [],
+    this.assessmentQuestions = const [],
     required this.title,
     required this.summary,
     required this.lessons,
@@ -28,6 +44,9 @@ class CourseModule {
   final String title;
   final String summary;
   final List<Lesson> lessons;
+  final String assignment;
+  final List<QuizQuestion> questions;
+  final List<QuizQuestion> assessmentQuestions;
 }
 
 class Course {
@@ -43,6 +62,7 @@ class Course {
     this.tools = const [],
     this.capstoneProject = '',
     this.quizSubject,
+    this.stableId,
   });
 
   final String title;
@@ -57,7 +77,24 @@ class Course {
   final String capstoneProject;
   final String? quizSubject;
 
-  String get id => title.toLowerCase().replaceAll(' ', '-');
+  final String? stableId;
+  String get id => stableId ?? title.toLowerCase().replaceAll(' ', '-');
+
+  List<QuizQuestion> get finalQuestions => [
+    for (final module in modules) ...module.assessmentQuestions,
+  ];
+
+  bool matchesLevel(String difficulty) {
+    if (modules.any((module) => module.questions.isNotEmpty)) {
+      return allLessons.any((lesson) => lesson.difficulty.label == difficulty);
+    }
+    const levels = ['beginner', 'intermediate', 'advanced'];
+    final range = level.toLowerCase().split(' to ');
+    final index = levels.indexOf(difficulty.toLowerCase());
+    return index >= 0 &&
+        index >= levels.indexOf(range.first) &&
+        index <= levels.indexOf(range.last);
+  }
 
   List<Lesson> get allLessons => lessons.isNotEmpty
       ? lessons

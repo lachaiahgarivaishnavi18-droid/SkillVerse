@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:learning_app/data/app_content.dart';
+import 'package:learning_app/data/course_models.dart';
 import 'package:learning_app/data/quiz_bank.dart';
 import 'package:learning_app/main.dart';
 import 'package:learning_app/services/app_store.dart';
@@ -11,21 +12,59 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets('new learners see splash, welcome, and sign-up choices', (
-    tester,
-  ) async {
-    final store = await AppStore.create();
-    await tester.pumpWidget(LearningApp(store: store));
-    expect(find.byType(SplashScreen), findsOneWidget);
+  testWidgets(
+    'welcome, registration, explicit login, and logout work end to end',
+    (tester) async {
+      final store = await AppStore.create();
+      await tester.pumpWidget(LearningApp(store: store));
+      expect(find.byType(SplashScreen), findsOneWidget);
 
-    await tester.pump(const Duration(milliseconds: 800));
-    await tester.pumpAndSettle();
-    expect(find.byType(WelcomePage), findsOneWidget);
-    await tester.tap(find.text('Sign Up'));
-    await tester.pumpAndSettle();
-    expect(find.text('Full Name'), findsOneWidget);
-    expect(find.text('Confirm Password'), findsOneWidget);
-  });
+      await tester.pump(const Duration(milliseconds: 800));
+      await tester.pumpAndSettle();
+      expect(find.byType(WelcomePage), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Create Account'));
+      await tester.pumpAndSettle();
+      expect(find.text('Full Name'), findsOneWidget);
+      expect(find.text('Confirm Password'), findsOneWidget);
+      final fields = find.byType(TextFormField);
+      await tester.enterText(fields.at(0), 'Jamie');
+      await tester.enterText(fields.at(1), 'jamie@example.com');
+      await tester.enterText(fields.at(3), 'secure-pass');
+      await tester.enterText(fields.at(4), 'secure-pass');
+      final terms = find.byType(CheckboxListTile);
+      await tester.ensureVisible(terms);
+      await tester.tap(terms);
+      await tester.pumpAndSettle();
+      final create = find.text('Create Account').last;
+      await tester.ensureVisible(create);
+      await tester.tap(create);
+      await tester.pumpAndSettle();
+
+      expect(store.isAuthenticated, isFalse);
+      expect(find.byType(MainScreen), findsNothing);
+      expect(find.text('jamie@example.com'), findsOneWidget);
+      await tester.enterText(fields.at(1), 'wrong-password');
+      await tester.ensureVisible(find.text('Login'));
+      await tester.tap(find.text('Login'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Incorrect password.'), findsOneWidget);
+      expect(store.isAuthenticated, isFalse);
+
+      await tester.enterText(fields.at(1), 'secure-pass');
+      await tester.ensureVisible(find.text('Login'));
+      await tester.tap(find.text('Login'));
+      await tester.pumpAndSettle();
+      expect(find.byType(MainScreen), findsOneWidget);
+      await tester.tap(find.text('Profile'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.text('Logout'), 250);
+      await tester.tap(find.text('Logout'));
+      await tester.pumpAndSettle();
+      expect(store.isAuthenticated, isFalse);
+      expect(find.byType(SignInForm), findsOneWidget);
+      expect(find.byType(MainScreen), findsNothing);
+    },
+  );
 
   test('local account sign-in survives app-store reload and logout', () async {
     final store = await AppStore.create();
@@ -36,19 +75,234 @@ void main() {
       password: 'secure-pass',
       confirmPassword: 'secure-pass',
     );
-    expect(store.isAuthenticated, isTrue);
+    expect(store.isAuthenticated, isFalse);
+    final registered = await AppStore.create();
+    expect(registered.isAuthenticated, isFalse);
+    await registered.signIn(
+      email: 'taylor@example.com',
+      password: 'secure-pass',
+      rememberMe: true,
+    );
 
     final reloaded = await AppStore.create();
     expect(reloaded.isAuthenticated, isTrue);
     expect(reloaded.displayName, 'Taylor');
     await reloaded.logout();
     expect(reloaded.isAuthenticated, isFalse);
+    final preferences = await SharedPreferences.getInstance();
+    final completedCourse = courses.first;
+    final accountId = reloaded.accounts.single.id;
+    await preferences.setStringList(
+      'account.$accountId.completed_lessons',
+      completedCourse.allLessons.map((lesson) => lesson.id).toList(),
+    );
+    await preferences.setStringList(
+      'account.$accountId.passed_course_assessments',
+      [completedCourse.id],
+    );
     await reloaded.signIn(
       email: 'taylor@example.com',
       password: 'secure-pass',
       rememberMe: true,
     );
     expect(reloaded.isAuthenticated, isTrue);
+    expect(reloaded.certificateFor(completedCourse), isNotNull);
+    expect(reloaded.certificateFor(completedCourse)!.completionDateKnown, isFalse);
+  });
+
+  test('validates credentials and upgrades legacy password hashes', () async {
+    const email = 'existing@example.com';
+    SharedPreferences.setMockInitialValues({
+      'auth_accounts': '[{"email":"existing@example.com","passwordHash":"8c33e661b0f45dd127186e69c3e6bd374a5c29bcc9c2538e6b9629945ea9818c"}]',
+      'auth_current_email': email,
+      'auth_session_active': false,
+    });
+    final store = await AppStore.create();
+    expect(store.isAuthenticated, isFalse);
+    await expectLater(
+      _register(store, 'invalid @example.com'),
+      throwsArgumentError,
+    );
+    await expectLater(
+      _register(store, 'EXISTING@example.com'),
+      throwsStateError,
+    );
+    await expectLater(
+      store.resetPassword(
+        email: email,
+        currentPassword: 'wrong',
+        newPassword: 'new-password',
+      ),
+      throwsStateError,
+    );
+    await store.signIn(
+      email: email,
+      password: 'secure-pass',
+      rememberMe: false,
+    );
+    expect(store.accounts.single.passwordHash, startsWith('pbkdf2-sha256:'));
+    await _register(store, 'second@example.com');
+    expect(
+      store.accounts.first.passwordHash,
+      isNot(store.accounts.last.passwordHash),
+    );
+    await store.resetPassword(
+      email: email,
+      currentPassword: 'secure-pass',
+      newPassword: 'new-password',
+    );
+    await expectLater(
+      store.signIn(email: email, password: 'secure-pass', rememberMe: false),
+      throwsStateError,
+    );
+    await store.signIn(
+      email: email,
+      password: 'new-password',
+      rememberMe: false,
+    );
+    expect(store.currentUserEmail, email);
+  });
+
+  test('course progress is isolated across accounts and restarts', () async {
+    final store = await AppStore.create();
+    final course = courses.first;
+    await _register(store, 'first@example.com');
+    await store.toggleBookmark('first-bookmark');
+    await store.saveProject(
+      const StudentProject(
+        id: 'first-project',
+        title: 'First project',
+        description: '',
+        category: '',
+        technologies: '',
+      ),
+    );
+    await store.saveAttempt(
+      TestAttempt(
+        id: 'practice-attempt',
+        subject: 'Python',
+        completedAt: DateTime(2025),
+        selections: const {},
+        questionIds: const [],
+        durationSeconds: 10,
+      ),
+    );
+    final firstId = store.currentUserId;
+    expect(store.completedLessonCount, 0);
+    for (final lesson in course.allLessons.take(3)) {
+      await store.markLessonComplete(lesson.id);
+    }
+    await store.updateDisplayName('First account');
+    await store.logout();
+    expect(store.currentUserId, isNull);
+    expect(store.completedLessons, isEmpty);
+    expect(store.passedCourseAssessments, isEmpty);
+    expect(store.attempts, isEmpty);
+    expect(store.displayName, 'Learner');
+    expect(store.bookmarks, isEmpty);
+    expect(store.projects, isEmpty);
+
+    await _register(store, 'second@example.com');
+    expect(store.currentUserId, isNot(firstId));
+    expect(store.bookmarks, isEmpty);
+    expect(store.projects, isEmpty);
+    expect(store.completedLessonCount, 0);
+    expect(store.passedCourseAssessments, isEmpty);
+    expect(store.attempts, isEmpty);
+    final secondLesson = course.allLessons.last.id;
+    await store.markLessonComplete(secondLesson);
+
+    final reloaded = await AppStore.create();
+    expect(reloaded.completedLessons, {secondLesson});
+    await reloaded.signIn(
+      email: 'FIRST@example.com',
+      password: 'secure-pass',
+      rememberMe: false,
+    );
+    expect(reloaded.currentUserId, firstId);
+    expect(reloaded.completedLessonCount, 3);
+    expect(reloaded.completedLessons, isNot(contains(secondLesson)));
+    expect(reloaded.passedCourseAssessments, isEmpty);
+    expect(reloaded.attempts.map((attempt) => attempt.id), [
+      'practice-attempt',
+    ]);
+    expect(reloaded.bookmarks, {'first-bookmark'});
+    expect(reloaded.projects.single.id, 'first-project');
+    expect(reloaded.displayName, 'First account');
+    final restarted = await AppStore.create();
+    expect(restarted.isAuthenticated, isFalse);
+    expect(restarted.completedLessons, isEmpty);
+  });
+
+  for (final accountCount in [1, 2]) {
+    test(
+      'legacy course progress with $accountCount registered accounts',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'auth_accounts':
+              '[{"email":"first@example.com","passwordHash":"8c33e661b0f45dd127186e69c3e6bd374a5c29bcc9c2538e6b9629945ea9818c"}'
+              '${accountCount == 2 ? ',{"email":"second@example.com"}' : ''}]',
+          'auth_current_email': 'first@example.com',
+          'auth_session_active': true,
+          'completed_lessons': ['legacy-lesson'],
+          'passed_course_assessments': ['legacy-course'],
+        });
+        final store = await AppStore.create();
+        expect(
+          store.completedLessons,
+          accountCount == 1 ? {'legacy-lesson'} : isEmpty,
+        );
+        expect(
+          store.passedCourseAssessments,
+          accountCount == 1 ? {'legacy-course'} : isEmpty,
+        );
+        final originalId = store.currentUserId;
+        final preferences = await SharedPreferences.getInstance();
+        expect(preferences.getStringList('completed_lessons'), [
+          'legacy-lesson',
+        ]);
+        await _register(store, 'new@example.com');
+        expect(store.completedLessons, isEmpty);
+        expect(store.passedCourseAssessments, isEmpty);
+        expect(store.currentUserId, isNot(originalId));
+      },
+    );
+  }
+
+  testWidgets('course search and the three difficulty filters work together', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1100, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final store = await AppStore.create();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: LearnPage(store: store)),
+      ),
+    );
+    final search = find.byType(TextField);
+    for (final level in ['Beginner', 'Intermediate', 'Advanced']) {
+      final chip = find.widgetWithText(ChoiceChip, level);
+      await tester.tap(chip);
+      await tester.pumpAndSettle();
+      await tester.enterText(search, '  PYTHON  ');
+      await tester.pumpAndSettle();
+      expect(find.text('Python Programming'), findsOneWidget);
+      expect(find.text('No courses found'), findsNothing);
+      await tester.enterText(search, 'git and github');
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Git and GitHub'),
+        level == 'Beginner' ? findsOneWidget : findsNothing,
+      );
+      expect(
+        find.text('No courses found'),
+        level == 'Beginner' ? findsNothing : findsOneWidget,
+      );
+      await tester.enterText(search, '');
+      await tester.pumpAndSettle();
+      expect(find.text('No courses found'), findsNothing);
+    }
   });
 
   testWidgets('shows the dashboard and all five main destinations', (
@@ -63,6 +317,9 @@ void main() {
     expect(find.text('Interview'), findsOneWidget);
     expect(find.text('Projects'), findsOneWidget);
     expect(find.text('Profile'), findsOneWidget);
+    final progress = find.byType(LinearProgressIndicator);
+    await tester.scrollUntilVisible(progress, 250);
+    expect(tester.widget<LinearProgressIndicator>(progress).value, 0);
   });
 
   testWidgets('course lessons and interview practice are reachable', (
@@ -74,7 +331,7 @@ void main() {
     await tester.tap(find.text('Learn'));
     await tester.pumpAndSettle();
     expect(find.text('Learning courses'), findsOneWidget);
-    expect(find.text('Python'), findsOneWidget);
+    expect(find.text('Python Programming'), findsOneWidget);
 
     await tester.tap(find.text('Interview'));
     await tester.pumpAndSettle();
@@ -95,7 +352,7 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Learning courses'), findsOneWidget);
 
-    await tester.tap(find.text('Python').last);
+    await tester.tap(find.text('Python Programming').last);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     await tester.scrollUntilVisible(
@@ -112,11 +369,11 @@ void main() {
     await tester.tap(find.text('Learn'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
-      find.text('Databricks'),
+      find.text('Databricks').hitTestable(),
       300,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(find.text('Databricks'));
+    await tester.tap(find.text('Databricks').hitTestable());
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
@@ -140,11 +397,12 @@ void main() {
 
   test('bookmarks, lesson progress, profile and attempts persist', () async {
     final store = await AppStore.create();
+    await _register(store, 'taylor@example.com');
     await store.toggleBookmark(interviewQuestions.first.id);
     for (final lesson in courses.first.allLessons) {
       await store.markLessonComplete(lesson.id);
     }
-    await store.markCourseAssessmentPassed(courses.first.id);
+    await _passFinal(store, courses.first);
     await store.updateDisplayName('Taylor');
     await store.saveAttempt(
       TestAttempt(
@@ -164,7 +422,10 @@ void main() {
       contains(courses.first.allLessons.first.id),
     );
     expect(reloaded.displayName, 'Taylor');
-    expect(reloaded.attempts.single.id, 'attempt-1');
+    expect(
+      reloaded.attempts.map((attempt) => attempt.id),
+      contains('attempt-1'),
+    );
     expect(reloaded.isCourseComplete(courses.first), isTrue);
   });
 
@@ -184,7 +445,9 @@ void main() {
   );
 
   test('Python course includes its beginner-to-advanced syllabus', () {
-    final python = courses.singleWhere((course) => course.title == 'Python');
+    final python = courses.singleWhere(
+      (course) => course.title == 'Python Programming',
+    );
     expect(python.modules.length, greaterThanOrEqualTo(15));
     expect(python.allLessons.length, greaterThanOrEqualTo(30));
     expect(
@@ -336,6 +599,7 @@ void main() {
     tester,
   ) async {
     final store = await AppStore.create();
+    await _register(store, 'exam@example.com');
     final questions = quizQuestions
         .where((question) => question.subject == 'Databricks')
         .take(10)
@@ -381,7 +645,36 @@ Future<void> _pumpAuthenticatedApp(WidgetTester tester, AppStore store) async {
     password: 'learner-pass',
     confirmPassword: 'learner-pass',
   );
+  await store.signIn(
+    email: 'learner@example.com',
+    password: 'learner-pass',
+    rememberMe: true,
+  );
   await tester.pumpWidget(LearningApp(store: store));
   await tester.pump(const Duration(milliseconds: 800));
   await tester.pumpAndSettle();
 }
+
+Future<void> _register(AppStore store, String email) async {
+  await store.signUp(
+    fullName: 'Taylor',
+    email: email,
+    mobile: '',
+    password: 'secure-pass',
+    confirmPassword: 'secure-pass',
+  );
+  await store.signIn(email: email, password: 'secure-pass', rememberMe: true);
+}
+
+Future<void> _passFinal(AppStore store, Course course) => store.saveAttempt(
+  TestAttempt(
+    id: 'final-${course.id}',
+    subject: course.quizSubject!,
+    completedAt: DateTime(2026, 11, 17),
+    selections: {for (final q in course.finalQuestions) q.id: q.answerIndex},
+    questionIds: course.finalQuestions.map((q) => q.id).toList(),
+    durationSeconds: 30,
+    mode: 'exam',
+    courseId: course.id,
+  ),
+);

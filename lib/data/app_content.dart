@@ -1,4 +1,5 @@
 import 'course_models.dart';
+import 'curriculum.dart';
 import 'python_course.dart';
 import 'priority_courses.dart';
 import 'quiz_bank.dart';
@@ -28,6 +29,7 @@ class InterviewQuestion {
 final _baseCourses = <Course>[
   Course(
     title: 'Python',
+    level: 'Beginner to advanced',
     quizSubject: 'Python',
     description: 'Build Python skills from interpreter basics through object-oriented programming, NumPy, Pandas, visualization, and a tested capstone project.',
     objectives: [
@@ -83,6 +85,7 @@ final _baseCourses = <Course>[
   ),
   Course(
     title: 'Machine Learning',
+    level: 'Intermediate',
     quizSubject: 'Machine Learning',
     description: 'Study model validation, generalization and practical evaluation metrics.',
     objectives: [
@@ -151,6 +154,7 @@ final _baseCourses = <Course>[
   ),
   Course(
     title: 'Artificial Intelligence',
+    level: 'Intermediate',
     quizSubject: 'Artificial Intelligence',
     description: 'Explore search representations, evaluation and responsible AI fundamentals.',
     objectives: [
@@ -185,6 +189,7 @@ final _baseCourses = <Course>[
   ),
   Course(
     title: 'Data Structures and Algorithms',
+    level: 'Beginner to intermediate',
     quizSubject: 'Data Structures and Algorithms',
     description: 'Understand common data structures and the effect of algorithmic complexity.',
     objectives: [
@@ -252,7 +257,7 @@ final _baseCourses = <Course>[
   ),
 ];
 
-final courses = <Course>[..._baseCourses, ...priorityCourses];
+final courses = buildCurriculum([..._baseCourses, ...priorityCourses]);
 
 const interviewQuestions = <InterviewQuestion>[
   InterviewQuestion(
@@ -1010,4 +1015,12 @@ final quizQuestions = <QuizQuestion>[
   ..._baseQuizQuestions,
   ...priorityQuizQuestions,
   ...expandedQuizQuestions,
+];
+
+final courseAssessmentQuestions = [
+  for (final course in courses)
+    for (final module in course.modules) ...[
+      ...module.questions,
+      ...module.assessmentQuestions,
+    ],
 ];
