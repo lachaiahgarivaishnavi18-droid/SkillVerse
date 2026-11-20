@@ -8,6 +8,7 @@ Lesson _lesson(
   List<String> topics = const [],
   String? expectedOutput,
   String? exercise,
+  String? industryUse,
 }) => Lesson(
   id: id,
   title: title,
@@ -16,6 +17,7 @@ Lesson _lesson(
   topics: topics,
   expectedOutput: expectedOutput,
   exercise: exercise,
+  industryUse: industryUse,
 );
 
 CourseModule _module(String title, String summary, List<Lesson> lessons) =>
@@ -24,6 +26,7 @@ CourseModule _module(String title, String summary, List<Lesson> lessons) =>
 final priorityCourses = <Course>[
   Course(
     title: 'Databricks',
+    difficulty: CourseDifficulty.intermediate,
     description: 'A practical path from lakehouse fundamentals to governed, production-oriented data pipelines on Databricks. Cloud exercises are design labs unless you connect an account.',
     objectives: [
       'Explain lakehouse, Spark and Databricks workspace concepts.',
@@ -34,7 +37,6 @@ final priorityCourses = <Course>[
     prerequisites: [
       'SQL basics are helpful; no cloud account is required for reading.',
     ],
-    level: 'Beginner to intermediate',
     duration: '12–16 hours',
     tools: ['Databricks workspace (optional)', 'SQL', 'Python', 'Apache Spark'],
     quizSubject: 'Databricks',
@@ -341,6 +343,7 @@ final priorityCourses = <Course>[
   ),
   Course(
     title: 'PySpark',
+    difficulty: CourseDifficulty.intermediate,
     description: 'Learn distributed data processing with PySpark DataFrames, SQL, streaming and performance analysis. Local code examples are illustrative; execution requires a Spark installation or managed cluster.',
     objectives: [
       'Build DataFrame transformations with explicit schemas.',
@@ -349,7 +352,6 @@ final priorityCourses = <Course>[
       'Diagnose shuffles, skew and partitioning trade-offs.',
     ],
     prerequisites: ['Basic Python and relational data concepts.'],
-    level: 'Beginner to intermediate',
     duration: '14–18 hours',
     tools: ['Python', 'PySpark', 'Apache Spark', 'Jupyter (optional)'],
     quizSubject: 'PySpark',
@@ -642,6 +644,7 @@ final priorityCourses = <Course>[
   ),
   Course(
     title: 'Azure DevOps',
+    difficulty: CourseDifficulty.intermediate,
     description: 'A structured introduction to planning, source control, CI/CD and delivery using Azure DevOps. Most labs require a Microsoft account and an Azure DevOps organization; cloud services may incur charges.',
     objectives: [
       'Plan work with Boards and collaborate through Git repositories.',
@@ -650,7 +653,6 @@ final priorityCourses = <Course>[
       'Design an observable CI/CD flow with test and rollback stages.',
     ],
     prerequisites: ['Basic command-line and Git familiarity is useful.'],
-    level: 'Beginner to intermediate',
     duration: '12–16 hours',
     tools: [
       'Azure DevOps organization',
@@ -942,13 +944,13 @@ final priorityCourses = <Course>[
   ),
   Course(
     title: 'Git and GitHub',
+    difficulty: CourseDifficulty.beginner,
     description: 'Practice version control, branching and collaborative code review using Git.',
     objectives: [
       'Create commits and branches.',
       'Review changes and resolve conflicts.',
     ],
     prerequisites: ['A terminal is helpful.'],
-    level: 'Beginner',
     duration: '3–4 hours',
     tools: ['Git', 'GitHub account optional'],
     modules: [
@@ -960,6 +962,7 @@ final priorityCourses = <Course>[
           'git status\ngit diff\ngit add README.md\ngit commit -m "Document setup"',
           topics: ['Working tree', 'Index', 'Commits', 'History'],
           expectedOutput: 'git status reports the changed and staged files.',
+          industryUse: 'A documentation maintainer separates one reviewed fix from unrelated code edits.',
           exercise: 'Make a focused documentation change and inspect the staged diff before committing.',
         ),
         _lesson(
@@ -968,6 +971,8 @@ final priorityCourses = <Course>[
           'A branch is a movable reference to a commit. Short-lived branches isolate changes; merging integrates history and may require resolving overlapping edits.',
           'git switch -c feature/course-outline\ngit merge feature/course-outline',
           topics: ['Branching', 'Merging', 'Conflicts'],
+          expectedOutput: 'The first command creates and switches to the feature branch. Merging that same branch into itself reports that it is already up to date.',
+          industryUse: 'A developer isolates a planned feature from ongoing maintenance work before it is integrated.',
           exercise:
               'Create two branches that edit separate lines and merge them.',
         ),
@@ -982,6 +987,8 @@ final priorityCourses = <Course>[
             'A remote names a shared repository. Fetch updates remote-tracking references; pull integrates updates into the current branch; push publishes commits subject to server policy.',
             'git fetch origin\ngit log --oneline --all',
             topics: ['Remote tracking', 'Fetch', 'Pull', 'Push'],
+            expectedOutput: 'The fetch updates remote-tracking references, then git log shows commits reachable from all refs without integrating the remote changes into the current branch.',
+            industryUse: 'A collaborator checks new upstream commits before deciding whether to integrate them.',
             exercise:
                 'Explain what changes locally after fetch compared with pull.',
           ),
@@ -991,6 +998,8 @@ final priorityCourses = <Course>[
             'A pull request presents a focused change for review and automated checks. Include context, tests and risks; address feedback with additional commits before merging.',
             'small change + clear description + passing checks + review',
             topics: ['Code review', 'Checks', 'Protected branches'],
+            expectedOutput: 'A focused change is ready for review with an understandable description and visible check results.',
+            industryUse: 'A maintainer gathers feedback and test evidence before merging a database change.',
             exercise: 'Write a review checklist for a change that alters a database query.',
           ),
         ],

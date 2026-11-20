@@ -36,6 +36,7 @@ class CourseModule {
     this.assignment = '',
     this.questions = const [],
     this.assessmentQuestions = const [],
+    this.moduleQuizQuestions = const [],
     required this.title,
     required this.summary,
     required this.lessons,
@@ -47,6 +48,7 @@ class CourseModule {
   final String assignment;
   final List<QuizQuestion> questions;
   final List<QuizQuestion> assessmentQuestions;
+  final List<QuizQuestion> moduleQuizQuestions;
 }
 
 class Course {
@@ -57,7 +59,7 @@ class Course {
     this.description = '',
     this.objectives = const [],
     this.prerequisites = const [],
-    this.level = 'Beginner',
+    required this.difficulty,
     this.duration = 'Self-paced',
     this.tools = const [],
     this.capstoneProject = '',
@@ -71,7 +73,8 @@ class Course {
   final String description;
   final List<String> objectives;
   final List<String> prerequisites;
-  final String level;
+  final CourseDifficulty difficulty;
+  String get level => difficulty.label;
   final String duration;
   final List<String> tools;
   final String capstoneProject;
@@ -84,17 +87,7 @@ class Course {
     for (final module in modules) ...module.assessmentQuestions,
   ];
 
-  bool matchesLevel(String difficulty) {
-    if (modules.any((module) => module.questions.isNotEmpty)) {
-      return allLessons.any((lesson) => lesson.difficulty.label == difficulty);
-    }
-    const levels = ['beginner', 'intermediate', 'advanced'];
-    final range = level.toLowerCase().split(' to ');
-    final index = levels.indexOf(difficulty.toLowerCase());
-    return index >= 0 &&
-        index >= levels.indexOf(range.first) &&
-        index <= levels.indexOf(range.last);
-  }
+  bool matchesLevel(String level) => difficulty.label == level;
 
   List<Lesson> get allLessons => lessons.isNotEmpty
       ? lessons
@@ -190,4 +183,35 @@ class QuizQuestion {
   final String explanation;
   final String difficulty;
   final String topic;
+
+  String get difficultyLabel => difficulty == 'Basic' ? 'Beginner' : difficulty;
+
+  Map<String, Object> toJson() => {
+    'id': id,
+    'subject': subject,
+    'prompt': prompt,
+    'options': options,
+    'answerIndex': answerIndex,
+    'explanation': explanation,
+    'difficulty': difficulty,
+    'topic': topic,
+  };
+
+  factory QuizQuestion.fromJson(Map<String, dynamic> json) {
+    final options = List<String>.from(json['options'] as List);
+    final answerIndex = json['answerIndex'] as int;
+    if (answerIndex < 0 || answerIndex >= options.length) {
+      throw const FormatException('Invalid answer key');
+    }
+    return QuizQuestion(
+      id: json['id'] as String,
+      subject: json['subject'] as String,
+      prompt: json['prompt'] as String,
+      options: List.unmodifiable(options),
+      answerIndex: answerIndex,
+      explanation: json['explanation'] as String,
+      difficulty: json['difficulty'] as String,
+      topic: json['topic'] as String,
+    );
+  }
 }

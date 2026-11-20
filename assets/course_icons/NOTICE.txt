@@ -1,0 +1,9 @@
+Subject pictograms: Lucide (https://lucide.dev), rasterized in SkillVerse blue.
+Brand marks prefixed brand-: Simple Icons (https://simpleicons.org), except
+Azure, Azure DevOps, SQL Server, Matplotlib and VS Code from Devicon
+(https://github.com/devicons/devicon), and Power BI and Excel Workbook from
+Microsoft (https://github.com/microsoft/PowerBI-Icons/tree/main/SVG).
+Microsoft artwork was rasterized from Power-BI.svg and Excel-Workbook.svg.
+See the accompanying copyright and license texts.
+The original Python mark comes from the Python Software Foundation
+(https://www.python.org/community/logos/).

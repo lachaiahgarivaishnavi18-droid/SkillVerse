@@ -1,5 +1,5 @@
 name: learning_app
-description: "A new Flutter project."
+description: "Skillverse courses, practice, exams, and interview preparation."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.0+3
 
 environment:
   sdk: ^3.14.0
@@ -39,6 +39,8 @@ dependencies:
   crypto: ^3.0.8
   pdf: ^3.6.0
   path_provider: ^2.0.0
+  supabase_flutter: ^2.18.3
+  url_launcher: ^6.3.3
 
 dev_dependencies:
   flutter_test:
@@ -56,9 +58,9 @@ flutter_launcher_icons:
   android: true
   ios: false
   image_path: "assets/brand/skillverse_logo.png"
-  adaptive_icon_background: "#06183d"
+  adaptive_icon_background: "android/app/src/main/res/drawable-xxxhdpi/ic_launcher_mask_background.png"
   adaptive_icon_foreground: "assets/brand/skillverse_logo.png"
-  adaptive_icon_foreground_inset: 30
+  adaptive_icon_foreground_inset: 21
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -67,7 +69,8 @@ flutter_launcher_icons:
 flutter:
   assets:
     - assets/brand/skillverse_logo.png
-    - assets/brand/skillverse_logo.svg
+    - assets/course_icons/
+    - assets/brand/python-logo-only.png
     - assets/fonts/NotoSans-Regular.ttf
     - assets/fonts/NotoSansDevanagari-Regular.ttf
     - assets/fonts/OFL.txt

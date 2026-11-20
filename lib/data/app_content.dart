@@ -2,34 +2,17 @@ import 'course_models.dart';
 import 'curriculum.dart';
 import 'python_course.dart';
 import 'priority_courses.dart';
+import 'scenario_quiz_questions.dart';
 import 'quiz_bank.dart';
+import 'interview_questions.dart';
+import 'interview_roles.dart';
 
-class InterviewQuestion {
-  const InterviewQuestion({
-    required this.id,
-    required this.category,
-    required this.difficulty,
-    required this.question,
-    required this.answer,
-    required this.explanation,
-    this.code,
-    this.output,
-  });
-
-  final String id;
-  final String category;
-  final String difficulty;
-  final String question;
-  final String answer;
-  final String explanation;
-  final String? code;
-  final String? output;
-}
+export 'interview_questions.dart' show InterviewQuestion;
 
 final _baseCourses = <Course>[
   Course(
     title: 'Python',
-    level: 'Beginner to advanced',
+    difficulty: CourseDifficulty.beginner,
     quizSubject: 'Python',
     description: 'Build Python skills from interpreter basics through object-oriented programming, NumPy, Pandas, visualization, and a tested capstone project.',
     objectives: [
@@ -51,6 +34,7 @@ final _baseCourses = <Course>[
   ),
   Course(
     title: 'SQL',
+    difficulty: CourseDifficulty.beginner,
     quizSubject: 'SQL',
     description: 'Practice relational queries, joins and aggregation using concise SQL examples.',
     objectives: [
@@ -85,7 +69,7 @@ final _baseCourses = <Course>[
   ),
   Course(
     title: 'Machine Learning',
-    level: 'Intermediate',
+    difficulty: CourseDifficulty.intermediate,
     quizSubject: 'Machine Learning',
     description: 'Study model validation, generalization and practical evaluation metrics.',
     objectives: [
@@ -120,6 +104,7 @@ final _baseCourses = <Course>[
   ),
   Course(
     title: 'Data Science',
+    difficulty: CourseDifficulty.intermediate,
     quizSubject: 'Data Science',
     description: 'Learn data quality, exploratory analysis and responsible communication of findings.',
     objectives: [
@@ -154,7 +139,7 @@ final _baseCourses = <Course>[
   ),
   Course(
     title: 'Artificial Intelligence',
-    level: 'Intermediate',
+    difficulty: CourseDifficulty.intermediate,
     quizSubject: 'Artificial Intelligence',
     description: 'Explore search representations, evaluation and responsible AI fundamentals.',
     objectives: [
@@ -189,7 +174,7 @@ final _baseCourses = <Course>[
   ),
   Course(
     title: 'Data Structures and Algorithms',
-    level: 'Beginner to intermediate',
+    difficulty: CourseDifficulty.intermediate,
     quizSubject: 'Data Structures and Algorithms',
     description: 'Understand common data structures and the effect of algorithmic complexity.',
     objectives: [
@@ -223,6 +208,7 @@ final _baseCourses = <Course>[
   ),
   Course(
     title: 'Technical Fundamentals',
+    difficulty: CourseDifficulty.beginner,
     quizSubject: 'Technical Fundamentals',
     description: 'Review HTTP, collaboration and secure application design fundamentals.',
     objectives: [
@@ -259,9 +245,15 @@ final _baseCourses = <Course>[
 
 final courses = buildCurriculum([..._baseCourses, ...priorityCourses]);
 
-const interviewQuestions = <InterviewQuestion>[
+final interviewQuestions = List<InterviewQuestion>.unmodifiable([
+  ...buildInterviewBank(_legacyInterviewQuestions, courses),
+  ...roleInterviewQuestions.map((entry) => entry.question),
+]);
+
+const _legacyInterviewQuestions = <InterviewQuestion>[
   InterviewQuestion(
     id: 'py-list-tuple',
+    topic: 'Sequences',
     category: 'Python Programming',
     difficulty: 'Basic',
     question: 'How do lists and tuples differ in Python?',
@@ -272,6 +264,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'py-yield',
+    topic: 'Generators',
     category: 'Python Programming',
     difficulty: 'Intermediate',
     question: 'What does a generator provide?',
@@ -282,14 +275,16 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'py-gil',
+    topic: 'Concurrency',
     category: 'Python Programming',
     difficulty: 'Advanced',
     question: 'What is the CPython GIL and when does it matter?',
-    answer: 'The Global Interpreter Lock allows only one thread at a time to execute Python bytecode in a CPython process.',
+    answer: 'In a standard GIL-enabled CPython interpreter, the Global Interpreter Lock lets only one thread at a time execute Python bytecode. Free-threaded builds have different behavior.',
     explanation: 'Threads can still help I/O-bound work because the interpreter releases the lock during many blocking operations. CPU-bound parallel work may use processes or native code.',
   ),
   InterviewQuestion(
     id: 'py-equality',
+    topic: 'Identity',
     category: 'Python Programming',
     difficulty: 'Basic',
     question: 'When should you use == versus is?',
@@ -300,6 +295,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'py-context',
+    topic: 'Resource management',
     category: 'Python Programming',
     difficulty: 'Intermediate',
     question: 'Why use a context manager?',
@@ -309,6 +305,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'sql-join',
+    topic: 'Joins',
     category: 'SQL',
     difficulty: 'Basic',
     question: 'What is the difference between INNER JOIN and LEFT JOIN?',
@@ -317,6 +314,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'sql-having',
+    topic: 'Aggregation',
     category: 'SQL',
     difficulty: 'Intermediate',
     question: 'How do WHERE and HAVING differ?',
@@ -326,6 +324,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'sql-index',
+    topic: 'Indexes',
     category: 'SQL',
     difficulty: 'Advanced',
     question: 'What are the trade-offs of adding an index?',
@@ -334,6 +333,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'sql-null',
+    topic: 'Null semantics',
     category: 'SQL',
     difficulty: 'Basic',
     question: 'Why does col = NULL not find null values?',
@@ -343,6 +343,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'sql-window',
+    topic: 'Window functions',
     category: 'SQL',
     difficulty: 'Advanced',
     question: 'When are window functions useful?',
@@ -352,6 +353,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'ml-overfit',
+    topic: 'Generalization',
     category: 'Machine Learning',
     difficulty: 'Basic',
     question: 'What is overfitting?',
@@ -360,6 +362,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'ml-leakage',
+    topic: 'Data leakage',
     category: 'Machine Learning',
     difficulty: 'Advanced',
     question: 'What is data leakage?',
@@ -368,6 +371,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'ml-precision-recall',
+    topic: 'Classification metrics',
     category: 'Machine Learning',
     difficulty: 'Intermediate',
     question: 'When would you prioritize recall over precision?',
@@ -376,6 +380,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'ml-regularization',
+    topic: 'Regularization',
     category: 'Machine Learning',
     difficulty: 'Intermediate',
     question: 'What does regularization do?',
@@ -384,6 +389,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'ml-crossval',
+    topic: 'Cross-validation',
     category: 'Machine Learning',
     difficulty: 'Advanced',
     question: 'Why use cross-validation?',
@@ -392,6 +398,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'tech-http',
+    topic: 'HTTP',
     category: 'Technical Questions',
     difficulty: 'Basic',
     question: 'What is the difference between HTTP GET and POST?',
@@ -400,6 +407,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'tech-api',
+    topic: 'API design',
     category: 'Technical Questions',
     difficulty: 'Intermediate',
     question: 'What makes an API endpoint idempotent?',
@@ -408,6 +416,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'tech-index',
+    topic: 'Transactions',
     category: 'Technical Questions',
     difficulty: 'Intermediate',
     question: 'What is a database transaction?',
@@ -416,6 +425,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'tech-authz',
+    topic: 'Access control',
     category: 'Technical Questions',
     difficulty: 'Advanced',
     question: 'How does authorization differ from authentication?',
@@ -424,6 +434,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'tech-cache',
+    topic: 'Caching',
     category: 'Technical Questions',
     difficulty: 'Advanced',
     question: 'What is cache invalidation and why is it difficult?',
@@ -432,6 +443,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'hr-conflict',
+    topic: 'Conflict resolution',
     category: 'HR and Interview Questions',
     difficulty: 'Basic',
     question: 'How would you describe a time you handled disagreement?',
@@ -440,6 +452,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'hr-failure',
+    topic: 'Accountability',
     category: 'HR and Interview Questions',
     difficulty: 'Intermediate',
     question: 'Tell me about a mistake and what you learned.',
@@ -448,6 +461,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'hr-motivation',
+    topic: 'Motivation',
     category: 'HR and Interview Questions',
     difficulty: 'Basic',
     question: 'Why are you interested in this role?',
@@ -456,6 +470,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'hr-priority',
+    topic: 'Prioritization',
     category: 'HR and Interview Questions',
     difficulty: 'Advanced',
     question: 'How do you handle competing priorities?',
@@ -464,6 +479,7 @@ const interviewQuestions = <InterviewQuestion>[
   ),
   InterviewQuestion(
     id: 'hr-feedback',
+    topic: 'Feedback',
     category: 'HR and Interview Questions',
     difficulty: 'Intermediate',
     question: 'How do you respond to constructive feedback?',
@@ -1015,6 +1031,7 @@ final quizQuestions = <QuizQuestion>[
   ..._baseQuizQuestions,
   ...priorityQuizQuestions,
   ...expandedQuizQuestions,
+  ...scenarioQuizQuestions,
 ];
 
 final courseAssessmentQuestions = [

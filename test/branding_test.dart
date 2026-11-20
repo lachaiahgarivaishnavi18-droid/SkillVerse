@@ -17,42 +17,125 @@ void main() {
     );
   });
 
-  testWidgets('official logo fits splash, auth, and home on narrow screens', (
+  testWidgets(
+    'branding is centered and proportionate at Android viewport sizes',
+    (tester) async {
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      SharedPreferences.setMockInitialValues({});
+      final store = await AppStore.create();
+      for (final viewport in [
+        const Size(320, 568),
+        const Size(393, 851),
+        const Size(800, 1280),
+        const Size(740, 320),
+      ]) {
+        const density = 2.0;
+        tester.view.devicePixelRatio = density;
+        tester.view.physicalSize = viewport * density;
+        for (final (screen, minimum, maximum) in [
+          (const SplashScreen(), 240.0, 360.0),
+          (
+            AuthLandingPage(store: store, initialShowSignIn: true),
+            244.0,
+            264.0,
+          ),
+          (
+            AuthLandingPage(store: store, initialShowSignIn: false),
+            244.0,
+            264.0,
+          ),
+          (WelcomePage(store: store), 240.0, 240.0),
+          (
+            Scaffold(
+              body: HomePage(store: store, onSelectTab: (_) {}),
+            ),
+            60.0,
+            60.0,
+          ),
+        ]) {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await tester.pumpWidget(MaterialApp(home: screen));
+          await tester.pump(const Duration(milliseconds: 100));
+          final logo = find.descendant(
+            of: find.byType(SkillVerseBrand),
+            matching: find.byType(Image),
+          );
+          expect(
+            logo,
+            findsOneWidget,
+            reason: '$viewport / ${screen.runtimeType}',
+          );
+          final image = tester.widget<Image>(logo);
+          expect(
+            (image.image as AssetImage).assetName,
+            'assets/brand/skillverse_logo.png',
+          );
+          expect(image.fit, BoxFit.contain);
+          expect(image.color, isNull);
+          final size = tester.getSize(logo);
+          expect(size.width, size.height);
+          expect(size.width, inInclusiveRange(minimum, maximum));
+          if (screen is! Scaffold) {
+            expect(
+              tester.getCenter(logo).dx,
+              closeTo(viewport.width / 2, 0.01),
+            );
+          }
+          expect(tester.takeException(), isNull);
+        }
+      }
+    },
+  );
+
+  testWidgets('beta display name, navigation, and About use release metadata', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(320, 740);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    SharedPreferences.setMockInitialValues({});
+    const metadata = MethodChannel('skillverse/build');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(metadata, (call) async {
+      expect(call.method, 'info');
+      return {'version': '1.0.0', 'build': '2'};
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(metadata, null));
+    await tester.binding.setSurfaceSize(const Size(800, 1300));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    SharedPreferences.setMockInitialValues({
+      'auth_accounts': '[{"fullName":"Beta test fixture","email":"beta@example.invalid","passwordHash":"fixture"}]',
+      'auth_current_email': 'beta@example.invalid',
+      'auth_session_active': true,
+    });
     final store = await AppStore.create();
-    for (final screen in <Widget>[
-      const SplashScreen(),
-      WelcomePage(store: store),
-      AuthLandingPage(store: store, initialShowSignIn: true),
-      AuthLandingPage(store: store, initialShowSignIn: false),
-      Scaffold(
-        body: HomePage(store: store, onSelectTab: (_) {}),
-      ),
-    ]) {
-      await tester.pumpWidget(const SizedBox.shrink());
-      await tester.pumpWidget(MaterialApp(home: screen));
-      await tester.pump(const Duration(milliseconds: 100));
-      final logo = find.descendant(
-        of: find.byType(SkillVerseBrand),
-        matching: find.byType(Image),
-      );
-      expect(logo, findsOneWidget);
-      final image = tester.widget<Image>(logo);
+    await tester.pumpWidget(LearningApp(store: store));
+    expect(
+      tester.widget<MaterialApp>(find.byType(MaterialApp)).title,
+      'Skillverse',
+    );
+    await tester.pump(const Duration(milliseconds: 700));
+    await tester.pumpAndSettle();
+    expect(find.text('Skillverse'), findsOneWidget);
+    final navigation = find.byType(NavigationBar);
+    for (final title in ['Home', 'Learn', 'Interview', 'Projects', 'Profile']) {
       expect(
-        (image.image as AssetImage).assetName,
-        'assets/brand/skillverse_logo.png',
+        find.descendant(of: navigation, matching: find.text(title)),
+        findsOneWidget,
       );
-      expect(image.fit, BoxFit.contain);
-      expect(image.color, isNull);
-      final size = tester.getSize(logo);
-      expect(size.width, size.height);
-      expect(tester.takeException(), isNull);
     }
+    await tester.tap(
+      find.descendant(of: navigation, matching: find.text('Profile')),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(find.text('Settings'), 250);
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('About Skillverse'));
+    await tester.tap(find.text('About Skillverse'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AboutDialog), findsOneWidget);
+    expect(find.text('1.0.0 (build 2)'), findsOneWidget);
+    expect(
+      find.textContaining('This build uses local accounts.'),
+      findsOneWidget,
+    );
   });
 }

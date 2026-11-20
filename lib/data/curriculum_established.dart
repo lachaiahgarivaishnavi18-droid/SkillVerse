@@ -1,6 +1,6 @@
 const establishedModules = {
   'Python': r'''
-Run a named script and compare a syntax error with a runtime error. | Hello, SkillVerse then 5 | Ready to learn | Automation scripts provide a repeatable entry point for a business task.
+Run a named script and compare a syntax error with a runtime error. | Hello, Skillverse then 5 | Ready to learn | Automation scripts provide a repeatable entry point for a business task.
 ? What executes Python statements? | The interpreter | A CSV header | A database index | The interpreter evaluates Python source instructions.
 ? What file extension conventionally identifies Python source? | .py | .sql | .pdf | The interpreter runs source files commonly named with .py.
 Create a project environment, record dependencies and reproduce setup in a clean environment. | Interpreter version then 4 | Activated environment and installed package versions | Isolated environments make analytics jobs reproducible across machines.

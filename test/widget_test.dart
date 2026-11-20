@@ -107,7 +107,10 @@ void main() {
     );
     expect(reloaded.isAuthenticated, isTrue);
     expect(reloaded.certificateFor(completedCourse), isNotNull);
-    expect(reloaded.certificateFor(completedCourse)!.completionDateKnown, isFalse);
+    expect(
+      reloaded.certificateFor(completedCourse)!.completionDateKnown,
+      isFalse,
+    );
   });
 
   test('validates credentials and upgrades legacy password hashes', () async {
@@ -269,10 +272,10 @@ void main() {
     );
   }
 
-  testWidgets('course search and the three difficulty filters work together', (
+  testWidgets('catalog filters partition courses and combine with search', (
     tester,
   ) async {
-    await tester.binding.setSurfaceSize(const Size(1100, 1000));
+    await tester.binding.setSurfaceSize(const Size(1100, 5000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final store = await AppStore.create();
     await tester.pumpWidget(
@@ -280,28 +283,48 @@ void main() {
         home: Scaffold(body: LearnPage(store: store)),
       ),
     );
+
+    expect(
+      courses.map((course) => course.id).toSet(),
+      hasLength(courses.length),
+    );
+    expect(
+      courses.map((course) => course.title).toSet(),
+      hasLength(courses.length),
+    );
     final search = find.byType(TextField);
-    for (final level in ['Beginner', 'Intermediate', 'Advanced']) {
-      final chip = find.widgetWithText(ChoiceChip, level);
-      await tester.tap(chip);
+    const examples = {
+      'Beginner': 'Python Programming',
+      'Intermediate': 'Machine Learning',
+      'Advanced': 'Deep Learning',
+    };
+
+    for (final level in ['All', ...examples.keys]) {
+      await tester.tap(find.widgetWithText(ChoiceChip, level));
       await tester.pumpAndSettle();
-      await tester.enterText(search, '  PYTHON  ');
+      for (final course in courses) {
+        expect(
+          find.text(course.title),
+          level == 'All' || course.level == level
+              ? findsOneWidget
+              : findsNothing,
+          reason: '$level / ${course.title}',
+        );
+      }
+      for (final entry in examples.entries) {
+        await tester.enterText(search, '  ${entry.value.toUpperCase()}  ');
+        await tester.pumpAndSettle();
+        expect(
+          find.text(entry.value),
+          level == 'All' || level == entry.key ? findsOneWidget : findsNothing,
+          reason: '$level / ${entry.value}',
+        );
+      }
+      await tester.enterText(search, 'no matching Skillverse course');
       await tester.pumpAndSettle();
-      expect(find.text('Python Programming'), findsOneWidget);
-      expect(find.text('No courses found'), findsNothing);
-      await tester.enterText(search, 'git and github');
-      await tester.pumpAndSettle();
-      expect(
-        find.text('Git and GitHub'),
-        level == 'Beginner' ? findsOneWidget : findsNothing,
-      );
-      expect(
-        find.text('No courses found'),
-        level == 'Beginner' ? findsNothing : findsOneWidget,
-      );
+      expect(find.text('No courses found'), findsOneWidget);
       await tester.enterText(search, '');
       await tester.pumpAndSettle();
-      expect(find.text('No courses found'), findsNothing);
     }
   });
 
@@ -312,11 +335,13 @@ void main() {
     await _pumpAuthenticatedApp(tester, store);
 
     expect(find.text('Hello, Learner!'), findsOneWidget);
-    expect(find.text('Home'), findsOneWidget);
-    expect(find.text('Learn'), findsOneWidget);
-    expect(find.text('Interview'), findsOneWidget);
-    expect(find.text('Projects'), findsOneWidget);
-    expect(find.text('Profile'), findsOneWidget);
+    final navigation = find.byType(NavigationBar);
+    for (final label in ['Home', 'Learn', 'Interview', 'Projects', 'Profile']) {
+      expect(
+        find.descendant(of: navigation, matching: find.text(label)),
+        findsOneWidget,
+      );
+    }
     final progress = find.byType(LinearProgressIndicator);
     await tester.scrollUntilVisible(progress, 250);
     expect(tester.widget<LinearProgressIndicator>(progress).value, 0);
@@ -631,7 +656,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('10%'), findsOneWidget);
-    expect(find.text(questions.first.explanation), findsOneWidget);
+    final explanation = find.text(questions.first.explanation);
+    await tester.scrollUntilVisible(
+      explanation,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(explanation, findsOneWidget);
     expect(store.attempts.single.mode, 'exam');
     expect(store.attempts.single.questionIds, hasLength(10));
   });

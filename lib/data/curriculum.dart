@@ -1,4 +1,5 @@
 import 'course_models.dart';
+import 'module_question_bank.dart';
 import 'curriculum_analytics.dart';
 import 'curriculum_engineering.dart';
 import 'curriculum_ml.dart';
@@ -24,29 +25,45 @@ List<Course> buildCurriculum(List<Course> existing) {
     for (final course in existing)
       _expand(course, pending.remove(course.title)),
     for (final entry in pending.entries)
-      _expand(Course(title: entry.key), entry.value),
+      _expand(
+        Course(title: entry.key, difficulty: _catalogDifficulty(entry.key)),
+        entry.value,
+      ),
   ];
 }
+
+// Catalog difficulty reflects prerequisites and the overall project scope.
+CourseDifficulty _catalogDifficulty(String title) => switch (title) {
+  'Statistics and Mathematics for Data Science' ||
+  'Data Analytics' => CourseDifficulty.beginner,
+  'Power BI' || 'Cloud Computing' => CourseDifficulty.intermediate,
+  'Advanced Excel' ||
+  'Deep Learning' ||
+  'Generative AI' ||
+  'Big Data Technologies' => CourseDifficulty.advanced,
+  _ => throw ArgumentError.value(title, 'title', 'Assign a catalog difficulty'),
+};
 
 Course _expand(Course source, String? syllabus) {
   final authored = syllabus == null ? null : _parse(source, syllabus);
   final legacy = establishedModules[source.title];
-  if (authored == null && legacy == null) return source;
-  final modules = authored == null
-      ? _enrichEstablished(source, legacy!)
-      : authored.modules;
+  final modules =
+      authored?.modules ??
+      (legacy != null
+          ? _enrichEstablished(source, legacy)
+          : source.learningModules);
   return Course(
     title: source.title == 'Python' ? 'Python Programming' : source.title,
     stableId: source.id,
     description: authored?.description ?? source.description,
-    level: 'Beginner to advanced',
+    difficulty: source.difficulty,
     duration: authored == null ? source.duration : 'Self-paced',
     objectives: authored?.objectives ?? source.objectives,
     prerequisites: authored?.prerequisites ?? source.prerequisites,
     tools: authored?.tools ?? source.tools,
     capstoneProject: authored?.capstone ?? source.capstoneProject,
     quizSubject: source.quizSubject ?? source.title,
-    modules: modules,
+    modules: buildModuleQuestionBanks(source, modules),
   );
 }
 
@@ -242,7 +259,7 @@ const _legacyOutcomes = {
   'python-capstone': '0.75',
   'python-for-loops': '1, 2, 3, Ava and Noah, each on a separate line.',
   'python-while-loops': '3, 2, 1 on separate lines.',
-  'python-string-basics': 'S, Skill and esreVllikS on separate lines.',
+  'python-string-basics': 'S, Skill and esrevllikS on separate lines.',
   'python-string-methods': 'PYTHON | SQL',
   'python-lists': '[81, 90, 88]',
   'python-tuples': '4 7 [4, 6]',
